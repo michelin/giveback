@@ -1,0 +1,18 @@
+    /*
+     * The Me tab. Served to every reader, after core.css.
+     */
+
+    /* The manual chip rides the meta line as one more fragment, so the line's gap is its space
+       and a chip that wraps starts at the line's edge. */
+    :where(#view-mine) .rank .meta > .chip { margin-left: 0; }
+
+    /* A row ends on what became of it, said at the size of the meta line under its title and
+       never squeezed by a long one. As wide as its longest word, with the 12px shape and the
+       4px gap before it, so the shapes of a list stand in one column and the words start at
+       one edge. */
+    :where(#view-mine) .rank .outcome {
+      flex: 0 0 auto;
+      min-width: calc(6ch + 16px);
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+    }

@@ -1,0 +1,626 @@
+    /*
+     * The Operations tab. Served to the operator tier only, after core.css. Every selector is
+     * scoped by :where(#view-ops), which adds no specificity: a rule here weighs what the
+     * component's own does, and wins by coming later.
+     */
+
+    /* ---- the jobs ---------------------------------------------------------------- */
+
+    /* Production's grid: as many 310px cards as fit - three in the shell, one on a phone. */
+    :where(#view-ops) .jobs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 12px;
+    }
+
+    /* No job: the one line across both tracks, not squeezed into the first. */
+    :where(#view-ops) .jobs > .nothing { grid-column: 1 / -1; }
+
+    /* position and overflow: the tick bar sits on the card's own top edge, so the card is its
+       containing block and clips it to the rounded corner. */
+    :where(#view-ops) .job {
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px 18px 18px;
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+    }
+
+    :where(#view-ops) .job[data-state="failing"] { border-color: color-mix(in srgb, var(--fail) 45%, transparent); }
+
+    :where(#view-ops) .job-head { display: flex; align-items: baseline; gap: 8px; }
+
+    :where(#view-ops) .job-name {
+      font-family: var(--mono);
+      font-size: var(--fs-13);
+      font-weight: 600;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    :where(#view-ops) .job-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 12px;
+      margin: 0;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+      overflow-wrap: anywhere;
+    }
+
+    /* One box per fragment, a gap apart, as on a list's meta line. */
+    :where(#view-ops) .job-line > span { min-width: 0; max-width: 100%; }
+
+    /* The cron line in the face of the machine text it is. */
+    :where(#view-ops) .job-line code { font-family: var(--mono); font-size: var(--fs-12); }
+
+    /* "next run" on the left, when on the right: the one figure on the card that moves. */
+    :where(#view-ops) .job-next { display: flex; gap: 8px; }
+    :where(#view-ops) .job-next .at { margin-left: auto; color: var(--ink); }
+
+    /* How far through its cycle the next run is: --now, because it answers when now meets the
+       schedule. Written every second, and the transition carries it between two writes. */
+    :where(#view-ops) .job-tick {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 0;
+      height: 3px;
+      overflow: hidden;
+      background: var(--now);
+      transition: width var(--m-400) linear;
+    }
+
+    /* While a run is in flight the bar cannot show a position, so it says "working" instead: a
+       short segment travelling a dim full-width track. */
+    :where(#view-ops) .job-tick[data-running="1"] {
+      background: color-mix(in srgb, var(--now) 14%, transparent);
+      transition: none;
+    }
+
+    :where(#view-ops) .job-tick[data-running="1"]::after {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 22%;
+      background: var(--now);
+      animation: ops-job-sweep 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes ops-job-sweep {
+      from { transform: translateX(-110%); }
+      to   { transform: translateX(560%); }
+    }
+
+    /* The card acknowledges its OWN run: colour rather than movement, so it reads at the edge of
+       vision without pulling the eye - in the healthy hue, a run having just completed. */
+    @keyframes ops-job-ran {
+      from { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); }
+      to   { background: var(--panel); }
+    }
+
+    :where(#view-ops) .job.just-ran { animation: ops-job-ran 900ms ease-out; }
+
+    /* base.css stops every animation. The sweep cannot simply stop: frozen, it is a segment
+       parked off the card, which reads as nothing at all - so the running track shows whole. */
+    @media (prefers-reduced-motion: reduce) {
+      :where(#view-ops) .job-tick[data-running="1"] { background: var(--now); opacity: 0.45; }
+      :where(#view-ops) .job-tick[data-running="1"]::after { display: none; }
+    }
+
+    /* A job's state, and a run's outcome: a word in a pill, never a colour alone. */
+    :where(#view-ops) .pill {
+      margin-left: auto;
+      flex: none;
+      padding: 2px 8px;
+      font-size: var(--fs-12);
+      font-weight: 500;
+      color: var(--ink-mute);
+      border: 1px solid currentColor;
+      border-radius: var(--pill);
+    }
+
+    :where(#view-ops) .pill.ok { color: var(--ok); }
+    :where(#view-ops) .pill.running { color: var(--sync); }
+    :where(#view-ops) .pill:is(.failing, .failed) { color: var(--fail); }
+    :where(#view-ops) .pill.skipped { color: var(--warn); }
+    /* The idle grey is a colour for graphics: the word is in the quiet ink, the rule in grey. */
+    :where(#view-ops) .pill.idle { border-color: var(--idle); }
+    :where(#view-ops) .pill.unknown { border-style: dashed; }
+
+    /* A key written in the page, entry by entry: the queue's. The charts' are core.js's
+       legend-list. */
+    :where(#view-ops) .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      margin-top: 12px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .legend > span { display: inline-flex; align-items: center; gap: 8px; }
+    :where(#view-ops) .legend > span > b { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    /* One bar per recent run, oldest first: height is duration, colour is outcome. An idle run
+       is the dark short bar its few milliseconds make it, a slot no run filled a hairline. */
+    :where(#view-ops) .spark { display: flex; align-items: flex-end; gap: 2px; height: 44px; padding-top: 2px; }
+
+    :where(#view-ops) .spark i { flex: 1 1 0; min-width: 2px; background: var(--ink-mute); }
+    :where(#view-ops) .spark i.ok { background: var(--sync); }
+    :where(#view-ops) .spark i.failed { background: var(--fail); }
+    :where(#view-ops) .spark i.skipped { background: var(--warn); }
+    :where(#view-ops) .spark i.idle { background: color-mix(in srgb, var(--idle) 55%, var(--panel)); }
+    :where(#view-ops) .spark i.gap { height: 2px; background: var(--line-soft); }
+
+    /* The day's figures, bold in the quieter ink, and the one that is the reason in its colour. */
+    :where(#view-ops) .job-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      margin: 0;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .job-stats b { color: var(--ink-dim); }
+    :where(#view-ops) .job-stats .degraded b { color: var(--warn); }
+    :where(#view-ops) .job-stats .failing b { color: var(--fail); }
+
+    /* Why something failed, in the words it failed with. */
+    :where(#view-ops) .cause {
+      margin: 0;
+      padding: 8px 12px;
+      font-family: var(--mono);
+      font-size: var(--fs-12);
+      color: var(--fail);
+      background: color-mix(in srgb, var(--fail) 8%, transparent);
+      border-left: 2px solid var(--fail);
+      border-radius: 0 var(--r-6) var(--r-6) 0;
+      overflow-wrap: anywhere;
+    }
+
+    :where(#view-ops) .rank .cause { display: block; margin-top: 4px; }
+
+    /* ---- the queue --------------------------------------------------------------- */
+
+    /* The tooltip is placed in canvas pixels, so the canvas is the box it is absolute in. */
+    :where(#view-ops) .track-wrap { position: relative; }
+
+    :where(#view-ops) .track {
+      display: block;
+      width: 100%;
+      height: 268px;
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line-soft);
+      border-radius: var(--r-10);
+    }
+
+    /* The track's hover detail. aria-hidden: the fold under it lists the next subjects as text. */
+    :where(#view-ops) .track-tip {
+      position: absolute;
+      z-index: 3;
+      max-width: 280px;
+      padding: 8px 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity var(--m-150);
+      background: var(--ground);
+      border: 1px solid var(--line);
+      border-radius: var(--r-6);
+      font-size: var(--fs-12);
+      line-height: 1.5;
+      color: var(--ink-dim);
+    }
+
+    :where(#view-ops) .track-tip.show { opacity: 1; }
+    :where(#view-ops) .track-tip > * { display: block; }
+    :where(#view-ops) .track-tip b { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+    :where(#view-ops) .track-tip i { font-style: normal; color: var(--ink-mute); }
+    :where(#view-ops) .track-tip .now { color: var(--now); }
+    :where(#view-ops) .track-tip .bad { color: var(--fail); }
+
+    /* The key to the track, in the tokens its canvas reads: a ring is a claim, held right now. */
+    :where(#view-ops) .legend b.q-sync { background: var(--sync); }
+    :where(#view-ops) .legend b.q-poll { background: var(--poll); }
+    :where(#view-ops) .legend b.q-ring { background: var(--sync); box-shadow: 0 0 0 2px var(--now); }
+    :where(#view-ops) .legend b.q-fail { background: var(--fail); }
+
+    :where(#view-ops) .fold { margin-top: 12px; }
+    :where(#view-ops) .fold > summary { font-size: var(--fs-13); color: var(--ink-dim); }
+
+    :where(#view-ops) .q-rank {
+      min-width: 24px;
+      font-size: var(--fs-13);
+      text-align: right;
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .q-kind {
+      min-width: 40px;
+      font-size: var(--fs-12);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .q-kind.sync { color: var(--sync); }
+    :where(#view-ops) .q-kind.poll { color: var(--poll); }
+
+    /* ---- what the machine takes -------------------------------------------------- */
+
+    /* Two panels of different heights: each keeps its own, rather than the shorter one
+       stretching to an empty half. */
+    :where(#view-ops) .grid-2 { align-items: start; }
+
+    /* ---- recent runs ------------------------------------------------------------- */
+
+    /* Wide enough for "Sep 23, 03:45", so every row's job starts at one x. */
+    :where(#view-ops) .run-at {
+      flex: 0 0 auto;
+      min-width: 96px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    /* The job is what the row is about: never cut short, as a repository name may be. */
+    :where(#view-ops) .runs .rank .name { white-space: normal; overflow-wrap: anywhere; }
+
+    /* ---- the accounts ------------------------------------------------------------ */
+
+    /* The chips level with the box they sit beside, not with its label. */
+    :where(#view-ops) .list-tools { align-items: flex-end; }
+
+    :where(#view-ops) .search { flex: 1 1 240px; min-width: 0; }
+
+    /* A table's columns do not fit a phone, and a table that does not fit pushes the whole
+       DOCUMENT sideways - measured at 393px: 617px of content, every panel scrolling with it.
+       Scrolling inside its own panel keeps the overflow where it belongs. */
+    :where(#view-ops) .users-wrap { overflow-x: auto; }
+
+    :where(#view-ops) .users { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
+    /* Without a floor the browser crushes the columns instead of scrolling, and every login
+       wraps to one letter per line. 680px because a date column - "Feb 24,
+       2026" - needs about 120px of its own, and a lower floor spent it by squeezing the columns
+       either side. */
+    :where(#view-ops) .users-wrap .users { min-width: 680px; }
+
+    :where(#view-ops) .users th {
+      font-size: var(--fs-12);
+      font-weight: 500;
+      color: var(--ink-mute);
+      text-align: left;
+      padding: 0 12px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      white-space: nowrap;
+    }
+
+    :where(#view-ops) .users td { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+    :where(#view-ops) .users tr:last-child td { border-bottom: 0; }
+    :where(#view-ops) .users tr:hover td { background: var(--panel-2); }
+    /* nowrap because the floor above does not in fact buy this column the ~120px it was
+       raised for: measured at 393px the date cell gets 81, and "Feb 24, 2026" broke across two
+       lines. These columns are dates and counts - a number that wraps is a number misread.
+       The table simply grows past 680px instead, and .users-wrap was already scrolling. */
+    :where(#view-ops) .users .num {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    /* The table scrolls in its own box, so a login is never broken at its hyphen to fit. */
+    :where(#view-ops) .who-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    :where(#view-ops) .users .mail { font-size: var(--fs-12); color: var(--ink-dim); }
+    :where(#view-ops) .users .act { text-align: right; }
+
+    /* A header that sorts is a button the whole height of a target, reading as the header it is. */
+    :where(#view-ops) th button {
+      min-height: 44px;
+      padding: 0;
+      font: inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+      color: inherit;
+      background: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    :where(#view-ops) th[aria-sort] button { color: var(--ink); }
+
+    :where(#view-ops) .acct-state {
+      font-size: var(--fs-12);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .acct-state.installed { color: var(--ok); }
+    :where(#view-ops) .acct-state:is(.pending, .suspended) { color: var(--warn); }
+    :where(#view-ops) .acct-state.disabled { color: var(--fail); }
+    :where(#view-ops) .acct-state:is(.uninstalled, .unknown) { color: var(--ink-mute); }
+
+    /* The two small buttons of this tab: a row does not grow for its target, which reaches past
+       the button instead. */
+    :where(#view-ops) button.force,
+    :where(#view-ops) .drop {
+      position: relative;
+      padding: 4px 12px;
+      font-size: var(--fs-12);
+      white-space: nowrap;
+      color: var(--ink-mute);
+      background: none;
+      cursor: pointer;
+    }
+
+    :where(#view-ops) button.force::after,
+    :where(#view-ops) .drop::after {
+      content: '';
+      position: absolute;
+      inset: -12px 0;
+      min-height: 44px;
+    }
+
+    :where(#view-ops) button.force { border: 1px solid var(--line); border-radius: var(--pill); }
+    :where(#view-ops) button.force:hover:not(:disabled) { color: var(--ink); border-color: var(--sync); }
+
+    :where(#view-ops) .drop { border: 0; border-radius: var(--r-6); }
+    :where(#view-ops) .drop:hover { color: var(--fail); background: color-mix(in srgb, var(--fail) 9%, transparent); }
+
+    :where(#view-ops) :is(button.force, .drop):disabled { cursor: default; opacity: 0.5; }
+
+    :where(#view-ops) th button:focus-visible,
+    :where(#view-ops) button.force:focus-visible,
+    :where(#view-ops) .drop:focus-visible,
+    :where(#view-ops) .forge-pick:focus-visible,
+    :where(#view-ops) :is(input, select):focus-visible {
+      outline: 2px solid var(--sync);
+      outline-offset: 2px;
+    }
+
+    /* ---- recording a contribution by hand ---------------------------------------- */
+
+    /* The only form controls on the page: scoped to the tab, a bare `input` rule would be a
+       rule with one caller and a wide blast radius. */
+    :where(#view-ops) label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+    }
+
+    :where(#view-ops) :is(input, select) {
+      width: 100%;
+      min-height: 44px;
+      padding: 8px 12px;
+      font-family: var(--sans);
+      font-size: var(--fs-13);
+      color: var(--ink);
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--r-10);
+    }
+
+    :where(#view-ops) input::placeholder { color: var(--ink-mute); }
+
+    /* Which forge, as a segmented control rather than a dropdown: there are two, and the
+       choice changes what the panel below even is. */
+    :where(#view-ops) .forge {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+    }
+
+    :where(#view-ops) .forge-pick {
+      min-height: 44px;
+      padding: 0 16px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+      background: none;
+      border: 0;
+      border-radius: var(--pill);
+      cursor: pointer;
+    }
+
+    :where(#view-ops) .forge-pick[aria-pressed="true"] {
+      color: var(--ink);
+      background: var(--panel-2);
+      box-shadow: inset 0 0 0 1px var(--sync);
+    }
+
+    :where(#view-ops) .paste { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+    :where(#view-ops) .paste .grow { flex: 1 1 320px; min-width: 0; }
+
+    /* The button wears the colour of the forge it writes to, so the active path is legible even
+       to somebody who has forgotten which control they last touched. Its ink is the one place
+       a literal stands in for a token: a near-black no token names, for text on a hue. */
+    :where(#view-ops) button.record {
+      min-height: 44px;
+      padding: 0 16px;
+      font-family: var(--sans);
+      font-size: var(--fs-13);
+      font-weight: 500;
+      white-space: nowrap;
+      color: #04101f;
+      background: var(--sync);
+      border: 0;
+      border-radius: var(--r-10);
+      cursor: pointer;
+    }
+
+    :where(#view-ops) button.record.gitlab { background: var(--poll); }
+    :where(#view-ops) button.record:disabled { color: #0a1120; background: var(--idle); cursor: not-allowed; }
+    :where(#view-ops) button.record:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+    :where(#view-ops) .acts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+
+    /* What the lookup found. */
+    :where(#view-ops) .found {
+      margin-top: 16px;
+      overflow: hidden;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--r-10);
+    }
+
+    :where(#view-ops) .found-head {
+      padding: 8px 16px;
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+      border-bottom: 1px solid var(--line-soft);
+      border-left: 3px solid var(--ok);
+    }
+
+    /* A refusal is not an error state to be dismissed: it is the answer. Marked on the edge
+       rather than by repainting the card, which would read as something having gone wrong. */
+    :where(#view-ops) .found.refused .found-head { border-left-color: var(--fail); }
+
+    :where(#view-ops) .found-body { padding: 16px; }
+
+    /* A panel title's role: the display face is kept for figures. */
+    :where(#view-ops) .found-title {
+      margin: 0 0 4px;
+      font-family: var(--sans);
+      font-size: var(--fs-17);
+      font-weight: 500;
+    }
+
+    :where(#view-ops) .found-repo { margin: 0 0 12px; font-size: var(--fs-13); color: var(--ink-dim); }
+    :where(#view-ops) .found-repo .num { color: var(--ink-mute); }
+
+    :where(#view-ops) .found-facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 12px; }
+    :where(#view-ops) .found-facts div { display: flex; flex-direction: column; gap: 2px; }
+
+    :where(#view-ops) .found-facts dt {
+      font-size: var(--fs-12);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-ops) .found-facts dd { margin: 0; font-size: var(--fs-13); }
+
+    :where(#view-ops) .found-author {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--r-10);
+    }
+
+    :where(#view-ops) .found-author .grow { flex: 1 1 auto; min-width: 0; }
+    :where(#view-ops) .found-author .name { display: block; font-size: var(--fs-15); }
+    :where(#view-ops) .found-author .meta { font-size: var(--fs-13); color: var(--ink-mute); }
+
+    :where(#view-ops) .verdict {
+      font-size: var(--fs-12);
+      white-space: nowrap;
+    }
+
+    :where(#view-ops) .verdict.yes { color: var(--ok); }
+    :where(#view-ops) .verdict.no { color: var(--fail); }
+
+    :where(#view-ops) .fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+
+    :where(#view-ops) .fields .wide { grid-column: 1 / -1; }
+
+    /* What the lookup or the recording answered. Not `.notice`: that one is the page-level
+       banner, and it is clipped out of sight until it is shown. */
+    :where(#view-ops) .said { margin-top: 12px; padding: 12px; border-radius: var(--r-10); font-size: var(--fs-12); color: var(--ink-dim); }
+    :where(#view-ops) .said.good { background: color-mix(in srgb, var(--ok) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+    :where(#view-ops) .said.bad { background: color-mix(in srgb, var(--fail) 7%, transparent); border: 1px solid color-mix(in srgb, var(--fail) 28%, transparent); }
+
+    /* ---- what the bot has recorded ----------------------------------------------- */
+
+    /* Production's "What has been measured": two columns of hairline rows, the label in the
+       left, the figure in full ink on the right with what it splits into beside it. */
+    :where(#view-ops) .inventory { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+
+    :where(#view-ops) .inventory-col { margin: 0; }
+
+    :where(#view-ops) .inventory-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line-soft);
+      font-size: var(--fs-13);
+    }
+
+    :where(#view-ops) .inventory-row:last-child { border-bottom: 0; }
+
+    :where(#view-ops) .inventory-row dt { color: var(--ink-mute); }
+
+    :where(#view-ops) .inventory-row dd {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      align-items: baseline;
+      gap: 0 10px;
+      margin: 0 0 0 auto;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      text-align: right;
+    }
+
+    :where(#view-ops) .inventory-share { font-size: var(--fs-12); font-weight: 400; color: var(--ink-mute); }
+
+    /* ---- the settings ------------------------------------------------------------ */
+
+    /* Production's "What counts as ours", row after row: a label, its values as chips in the
+       poll hue on the raised surface, and under them the variables they are read from. */
+    :where(#view-ops) .settings-row + .settings-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+
+    :where(#view-ops) .settings-head { margin: 0 0 12px; font-size: var(--fs-13); font-weight: 500; color: var(--ink-dim); }
+
+    :where(#view-ops) .settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 18px; }
+
+    :where(#view-ops) .setting { min-width: 0; }
+
+    :where(#view-ops) .setting-label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+      overflow-wrap: anywhere;
+    }
+
+    :where(#view-ops) .setting-values { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    :where(#view-ops) .setting-values span {
+      padding: 4px 12px;
+      font-family: var(--mono);
+      font-size: var(--fs-12);
+      color: var(--poll);
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+      overflow-wrap: anywhere;
+    }
+
+    :where(#view-ops) .setting-values .none { color: var(--ink-mute); border-style: dashed; }
+
+    :where(#view-ops) .setting-env { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 8px; font-size: var(--fs-11); color: var(--ink-mute); overflow-wrap: anywhere; }
+
+    /* ---- breakpoints ------------------------------------------------------------- */
+
+    /* A phone: one job a row, a shorter track, and a run's time over its job rather than beside
+       it. */
+    @media (max-width: 620px) {
+      :where(#view-ops) .jobs { grid-template-columns: minmax(0, 1fr); }
+      :where(#view-ops) .track { height: 216px; }
+      :where(#view-ops) .runs .rank li { flex-wrap: wrap; }
+      :where(#view-ops) .run-at { flex-basis: 100%; }
+      :where(#view-ops) .inventory { grid-template-columns: minmax(0, 1fr); }
+      :where(#view-ops) .inventory-col + .inventory-col { border-top: 1px solid var(--line-soft); }
+      /* From nothing, so the outcome keeps its place at the end of the job's line. */
+      :where(#view-ops) .runs .rank .grow { flex-basis: 0; }
+    }

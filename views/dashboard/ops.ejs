@@ -1,0 +1,114 @@
+<%#
+  The Operations tab. Rendered for the operator tier only: for anyone else it is absent from the
+  document, not hidden in it, and every route behind it answers 404.
+
+  What the reader keeps across a refresh is written here once and never redrawn: the fold of
+  the next twelve, the search box, the scroll box of the table. The scripts fill in what is
+  inside them.
+%>
+<section id="view-ops" role="tabpanel" aria-labelledby="tab-ops" tabindex="0"<% if (landing !== 'ops') { %> hidden<% } %>>
+  <dl class="tiles" id="o-tiles"></dl>
+
+  <div class="jobs" id="o-jobs"></div>
+
+  <section class="panel">
+    <h2>The queue</h2>
+    <p class="panel-sub">Nothing is scheduled per user: the jobs drain whatever has reached the line</p>
+    <div class="track-wrap">
+      <canvas class="track" id="o-track" role="img" aria-label="Work queue drifting toward its due time"></canvas>
+      <%# Hover detail. Not the only way to it: the fold below lists the next subjects as text. %>
+      <div class="track-tip" id="o-track-tip" role="tooltip" aria-hidden="true"></div>
+    </div>
+    <div class="legend">
+      <span><b class="q-sync"></b>installation to sync</span>
+      <span><b class="q-poll"></b>pull request to poll</span>
+      <span><b class="q-ring"></b>held by a worker</span>
+      <span><b class="q-fail"></b>in error backoff</span>
+      <span id="o-queue-unit"></span>
+    </div>
+    <details class="fold">
+      <summary>The next 12 subjects, in the order they will be claimed</summary>
+      <ol class="rank" id="o-next"></ol>
+    </details>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <h2>Capacity and backlog</h2>
+      <p class="panel-sub" id="o-capacity-sub"></p>
+      <div class="bar-row" id="o-capacity"></div>
+    </section>
+    <section class="panel">
+      <h2>Detection latency</h2>
+      <p class="panel-sub" id="o-latency-sub"></p>
+      <div id="o-latency"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Recent runs</h2>
+    <p class="panel-sub" id="o-runs-sub"></p>
+    <div class="runs" id="o-runs"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Enrolled accounts</h2>
+    <p class="panel-sub" id="o-users-sub"></p>
+    <%# Not in a <form>: the page's policy is form-action 'none', and there is nothing to submit. %>
+    <div class="list-tools">
+      <div class="search">
+        <label for="o-users-q">Search by login or address</label>
+        <input id="o-users-q" type="search" autocomplete="off" spellcheck="false">
+      </div>
+      <div id="o-users-filters"></div>
+    </div>
+    <div class="users-wrap">
+      <table class="users" id="o-users">
+        <thead id="o-users-head"></thead>
+        <tbody id="o-users-rows"></tbody>
+      </table>
+    </div>
+    <div id="o-users-none"></div>
+    <p class="table-count" id="o-users-count"></p>
+    <div id="o-users-pages"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Record a contribution</h2>
+    <p class="panel-sub">A merged pull request or merge request, by its address</p>
+
+    <div class="forge" role="group" aria-label="Which forge">
+      <button type="button" class="forge-pick" id="m-github" data-forge="github" aria-pressed="true">GitHub</button>
+      <button type="button" class="forge-pick" id="m-gitlab" data-forge="gitlab" aria-pressed="false">GitLab</button>
+    </div>
+
+    <div class="paste">
+      <div class="grow">
+        <label for="m-url">Address</label>
+        <input id="m-url" type="url" autocomplete="off" spellcheck="false"
+               placeholder="https://github.com/owner/repo/pull/123">
+      </div>
+      <button class="record" type="button" id="m-look">Look it up</button>
+    </div>
+
+    <div id="m-result" aria-live="polite"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Recorded by hand</h2>
+    <p class="panel-sub">Merged work only, never polled</p>
+    <div id="m-list"></div>
+  </section>
+
+  <section class="panel">
+    <h2>What the bot has recorded</h2>
+    <p class="panel-sub">Everything stored, bots included</p>
+    <div id="o-inventory"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Settings</h2>
+    <p class="panel-sub">What this process was started with</p>
+    <div id="o-settings"></div>
+  </section>
+</section>

@@ -1,0 +1,183 @@
+/*
+ * The enrollment outcome page.
+ *
+ * Same palette, same type, same chassis as the dashboard - see public/base.css, which this
+ * file requires and never redefines. The two pages are one product, and this is the half a
+ * stranger sees first.
+ *
+ * What it does NOT borrow from the dashboard is density. The dashboard is scanned by three
+ * operators who already know what every column means; this page is read once, start to
+ * finish, by someone who has just been told "no" and needs to know why and what to do.
+ */
+
+/* base.css centres it and sets the 22px rhythm; this is one card, so it is narrow.
+
+   min-height rather than height: the page must be able to grow past the viewport on a short
+   screen, which `height: 100vh` would forbid - the footer would then sit on top of the panel
+   instead of below it. It is also what gives the panel's `margin: auto 0` something to
+   centre in. */
+.shell {
+  max-width: 660px;
+  /* dvh, with vh underneath for the browsers that lack it. On mobile Safari 100vh is the
+     viewport with the toolbars RETRACTED, so a page sized to it is taller than what is on
+     screen and the footer sits behind the toolbar. dvh follows the toolbar as it moves. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 28px 22px 40px;
+}
+
+/* base.css paints the surface. Two things are this page's own.
+
+   The outcome's colour, as a local token set by one of the three .tone-* classes below:
+   everything that needs the accent reads var(--tone), so the page has exactly one loud colour
+   and it is chosen by the outcome rather than by the layout.
+
+   And `margin: auto 0`, which centres the panel in whatever the header and footer leave.
+   Without it the shell's min-height parks the footer on the bottom edge and the card floats
+   in the top third, with a screen-height void between them - which on the short outcomes (a
+   spent link, an error: no steps, four lines of copy) is most of the page. */
+main.panel {
+  --tone: var(--sync);
+
+  margin: auto 0;
+  padding: 30px 28px;
+}
+
+/* The reader can fix this: an address to verify, an installation to redo. */
+main.panel.tone-fix { --tone: var(--warn); }
+/* Nothing is wrong - a spent link, a wrong click. The page must not read as a fault. */
+main.panel.tone-neutral { --tone: var(--sync); }
+/* Ours. */
+main.panel.tone-fail { --tone: var(--fail); }
+
+/* Not a section label but the verdict: whose problem this is, before the reader has parsed a
+   single sentence. That is why it takes the accent and the title does not. */
+.eyebrow {
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--tone);
+  margin: 0 0 6px;
+}
+
+/* Bigger than the dashboard's bar heading: there, the title names a page an operator opened
+   on purpose; here it IS the message. */
+h1.title { font-size: 1.6rem; line-height: 1.2; }
+
+/* The dashboard's .callout, widened for prose: same ground, same left rule, but the sans
+   face and a longer measure, because this is the one paragraph on the page that has to be
+   read rather than scanned. */
+.lead {
+  background: var(--panel-2);
+  border-left: 2px solid var(--tone);
+  border-radius: 0 8px 8px 0;
+  padding: 15px 17px;
+  margin: 20px 0 0;
+  font-size: 0.95rem;
+  color: var(--ink-dim);
+  max-width: 62ch;
+}
+
+.lead strong { color: var(--ink); font-weight: 600; }
+
+.steps-title {
+  font-size: var(--fs-15);
+  font-weight: 500;
+  color: var(--ink);
+  margin: 28px 0 12px;
+}
+
+/* An ordered list with its own numbers rather than the browser's: the marker is a sized,
+   bordered box here, and a ::marker cannot be given a border. list-style is dropped rather
+   than left to be invisible behind display:flex on the row.
+   Still an <ol>, so the position is announced even though the marker is not drawn. */
+ol.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Styled through the class, not through `ol.steps li`: the markup carries .step-item, and a
+   class nothing selects is a class the next person deletes as dead. */
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 13px 15px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+}
+
+/* Written into the markup rather than drawn by a CSS counter: the number is part of the
+   instruction, and a counter cannot be asserted in a test. */
+.step-number {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-mute);
+}
+
+/* The text column, so a long instruction wraps inside the row rather than pushing it wide. */
+.step-content { flex: 1; }
+
+.step-item strong { color: var(--ink); font-weight: 600; }
+
+/* The dashboard's link treatment: no browser blue, which against this ground is unreadable,
+   and an underline that is a real border so it can take a colour on hover. */
+.step-item a,
+footer a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The dashboard can afford a --line underline: its links sit in a table an operator already
+   knows is clickable. Here the link inside step 1 IS the instruction - "open your GitHub
+   email settings" - and at --line against --panel-2 it read as slightly brighter body text.
+   It gets the accent underline at rest, and fills in on hover. */
+.step-item a { border-bottom-color: var(--sync); }
+
+.step-item a:hover,
+footer a:hover { color: var(--sync); border-bottom-color: var(--sync); }
+
+/* The page's one action, and the only filled element on it. Solid --sync rather than the
+   outcome's --tone: the button always does the same thing, and painting it red on the error
+   page would read as "this button is the problem". */
+a.cta {
+  display: inline-block;
+  margin-top: 28px;
+  padding: 11px 26px;
+  background: var(--sync);
+  color: var(--ground);
+  border-radius: var(--pill);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+a.cta:hover { background: #6ba7ff; }
+
+/* margin-top:auto and the shell's min-height put the footer on the bottom edge of a short
+   page, and directly under the panel on a long one. */
+footer { margin-top: auto; padding-top: 14px; }
+
+@media (max-width: 560px) {
+  .shell { padding: 20px 14px 32px; }
+  main.panel { padding: 22px 18px; }
+  h1.title { font-size: 1.35rem; }
+  a.cta { display: block; text-align: center; }
+}
+

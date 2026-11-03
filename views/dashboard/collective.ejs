@@ -1,0 +1,66 @@
+<%#
+  The contribution report, for every reader: what everybody who installed the app opened, and
+  what became of it. Every node a script writes into is static here, so a refresh rewrites the
+  figures and never the structure - the canvas of a chart and the chips of a list survive it.
+%>
+<section id="view-collective" role="tabpanel" aria-labelledby="tab-collective" tabindex="0"<% if (landing !== 'collective') { %> hidden<% } %>>
+  <dl class="tiles" id="r-tiles"></dl>
+
+  <section class="panel">
+    <h2>Who is contributing</h2>
+    <p class="panel-sub" id="r-who-sub"></p>
+    <div id="r-who"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Month by month</h2>
+    <p class="panel-sub" id="r-months-sub"></p>
+    <div id="r-months"></div>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <h2>Outcome by scope</h2>
+      <p class="panel-sub">Pull requests opened by people</p>
+      <div class="bar-row" id="r-ours"></div>
+      <div class="bar-row" id="r-elsewhere"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Time to merge and size</h2>
+      <p class="panel-sub">Merged pull requests</p>
+      <div id="r-sizes-none"></div>
+      <div id="r-sizes">
+        <div class="bar-row" id="r-time"></div>
+        <div class="bar-row" id="r-commits"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Awaiting a verdict</h2>
+    <p class="panel-sub" id="r-pending-sub"></p>
+    <div class="bar-row" id="r-ages"></div>
+    <div id="r-pending"></div>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <h2>The biggest ones we got into</h2>
+      <p class="panel-sub">Outside ours, by stars, with a merged pull request</p>
+      <div id="r-fish"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Most contributed projects</h2>
+      <p class="panel-sub" id="r-projects-sub"></p>
+      <div id="r-projects"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>This month's contributors</h2>
+    <p class="panel-sub" id="r-contributors-sub"></p>
+    <div id="r-contributors"></div>
+  </section>
+</section>

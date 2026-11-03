@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#080c17">
+  <title>Dashboard · giveback</title>
+
+  <%# The contribution heart, from public/favicon.svg. SVG only: a browser that cannot read one
+      falls back to /favicon.ico, which this app does not serve, and simply shows nothing. %>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+  <%#
+    Ungated, and shared with views/enroll.ejs: it holds colour values, not the renderer. It
+    has to come first — the dashboard's stylesheets consume the tokens and define none of them.
+  %>
+  <link rel="stylesheet" href="/base.css">
+
+  <%#
+    /dashboard/assets/, not a path beside /dashboard: the session cookie is Path=/dashboard, and
+    RFC 6265 path-matching only accepts a prefix whose next character is "/" — anything else
+    would be requested without the cookie and answered with the login redirect on every load.
+    Every asset is served by one gated route registered next to the page in src/index.js, so a
+    refused or anonymous reader gets the same 404 the page itself gives them, and a reader
+    without the operator tier gets it for the Operations tab's files too.
+  %>
+  <% for (const name of assets.styles) { %>
+  <link rel="stylesheet" href="/dashboard/assets/<%= name %>">
+  <% } %>
+</head>
+<body>
+  <div class="shell">
+    <header class="bar">
+      <img src="/images/company_logo.svg" alt="Company logo">
+      <%#
+        "Dashboard", not "Bot dashboard": the company logo sits to its left and #app-line
+        below it already reads "giveback v1.0.0", so a second mention of the app in
+        the heading would be the third on one line.
+      %>
+      <h1 class="title">
+        Dashboard
+        <small id="app-line">—</small>
+      </h1>
+
+      <div class="bar-right">
+        <span class="heartbeat" id="heartbeat" title="Time since the last successful read">
+          <i></i><span id="heartbeat-text">live</span>
+        </span>
+        <a class="plain" href="/dashboard/logout">sign out</a>
+      </div>
+    </header>
+
+    <div class="notice" id="notice" role="status"></div>
+
+    <%#
+      The reader's own line, above the tabs and the same on every one of them: their face and
+      their login, then what they have landed. main.js draws the face and the figures, from the
+      rows the Me tab is drawn from; the name is here from the first paint, and so is the chip
+      that says this reader has the operator tier.
+    %>
+    <section class="you" id="you" aria-label="You">
+      <p class="nameplate"><span id="you-face"></span><span class="who"><%= snapshot.viewer %></span><% if (snapshot.operator) { %><span class="chip operator">operator</span><% } %></p>
+      <p class="figs" id="you-figs"></p>
+    </section>
+
+    <%#
+      Rendered here rather than by a script: which tabs this reader has, and the one the page
+      opens on, are the server's to decide. The panels below are the tabs' own templates.
+    %>
+    <% const LABELS = { mine: 'Me', collective: 'Overall', ops: 'Operations' }; %>
+    <nav>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Dashboard">
+        <% for (const key of tabs) { %>
+        <button class="tab" type="button" role="tab" id="tab-<%= key %>" data-view="<%= key %>"
+                aria-controls="view-<%= key %>" aria-selected="<%= key === landing %>"
+                tabindex="<%= key === landing ? 0 : -1 %>"><%= LABELS[key] %></button>
+        <% } %>
+      </div>
+    </nav>
+
+    <% for (const key of tabs) { %>
+    <%- include(`dashboard/${key}`) %>
+    <% } %>
+
+    <%# Once, after every tab and outside them all: it is true of each of them. %>
+    <%- include('dashboard/footnote') %>
+
+    <footer>
+      <% if (snapshot.operator) { %>
+      <span id="f-uptime"></span>
+      <span id="f-rev"></span>
+      <% } %>
+      <span id="f-refresh"></span>
+    </footer>
+  </div>
+
+  <%#
+    The first snapshot travels in the document, and so do whatever the landing tab draws and a
+    reader's own rows. A live instrument that opens empty and fills in half a second later reads
+    as broken every single time — and the fetches then only ever have to keep it up to date.
+
+    `<` is escaped so no value can close its script element. The pull requests in the seeds are
+    titled by whoever opened them, and nothing in any payload may rely on being markup-free.
+  %>
+  <% for (const [id, value] of [['snapshot', snapshot], ['seed-mine', seed.mine], ['seed-report', seed.report]]) { %>
+  <script type="application/json" id="<%= id %>"><%- JSON.stringify(value).replace(/</g, '\\u003c') %></script>
+  <% } %>
+
+  <%# After the islands, never before them: core.js reads them as it loads. %>
+  <% for (const name of assets.scripts) { %>
+  <script src="/dashboard/assets/<%= name %>"></script>
+  <% } %>
+</body>
+</html>

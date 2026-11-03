@@ -1,0 +1,62 @@
+# Lint and the whole test suite, SQL layer included, on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # The same image and trust setting as compose.yaml. Without a database, npm test skips
+    # test/db.integration.test.js and still reports green: CONTRIBUTING.md#tests.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    steps:
+      # Actions pinned by commit, since a tag can be moved after the fact.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node from mise.toml, so CI cannot drift from the version development uses.
+      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm test
+
+      # The SQL layer, executed: the only place a misspelt column or a $n pointing at the wrong
+      # parameter is caught. The suite applies init.sql itself, into a scratch schema it drops.
+      # Redirected rather than piped, so the suite's exit status is the step's. Then the gate is
+      # checked too: with DB_INTEGRATION_URL unread every test skips and the run still exits 0.
+      - name: npm test (SQL layer)
+        env:
+          DB_INTEGRATION_URL: postgres://postgres@localhost:5432/postgres
+        run: |
+          node --test test/db.integration.test.js > integration.log 2>&1 || { cat integration.log; exit 1; }
+          cat integration.log
+          grep -qE '(^|[[:space:]])pass [1-9]' integration.log \
+            || { echo "the integration suite ran nothing - is DB_INTEGRATION_URL still read?"; exit 1; }

@@ -1,0 +1,156 @@
+/*
+ * The palette, the type scale and the page chassis - everything both pages this app serves
+ * agree on. They link it first; each then adds only what is its own.
+ *
+ * It lives under the ungated public/ mount rather than beside the dashboard's stylesheets in
+ * views/, because views/enroll.ejs is public and views/dashboard.ejs is not: a copy per page is
+ * how the two drift, and the day someone changes --sync only half the product follows. There is
+ * nothing to gate here - these are colour values, not the dashboard renderer.
+ *
+ * The type SCALE is here; the faces are not. An @import inside a stylesheet is a serial
+ * fetch - the browser has to parse this file before it discovers the font request - so each
+ * page carries the same <link rel="preconnect"> + <link rel="stylesheet"> pair in its head
+ * instead. Same URL on both pages on purpose: same cache entry, so the second page a visitor
+ * opens pays nothing for its type.
+ *
+ * Deliberately single-theme. This is an instrument panel for an unattended process, and its
+ * public pages are its front door: a light variant would be a second design to keep correct
+ * for no reader. Every colour is therefore painted explicitly, so a page holds on any host
+ * background - and color-scheme says so to the browser, so what it draws itself (a scrollbar,
+ * a select's list, a date picker) is dark too for a reader whose system is set to light.
+ */
+:root {
+  color-scheme: dark;
+
+  --ground: #080c17;
+  --panel: #0f1626;
+  --panel-2: #141d31;
+  --line: #22304e;
+  --line-soft: #1a2439;
+  --ink: #e6ecf8;
+  --ink-dim: #a9b8d6;
+  --ink-mute: #7f92b8;
+
+  /* The two work queues. Both cool, so they read as an encoding rather than decoration. */
+  --sync: #4d94ff;
+  --poll: #3fd0c9;
+
+  /* The one loud colour on the dashboard, and it belongs to exactly one element there: the
+     NOW line. Everything the bot does is relative to that line. */
+  --now: #ffce00;
+
+  --ok: #2fd07a;
+  --warn: #ffb02e;
+  --fail: #ff5f6d;
+  --idle: #46587c;
+
+  --display: 'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+
+  /* The type scale: five text steps with an 11px floor, and four display sizes for figures. */
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --fd-1: 2.5rem;
+  --fd-2: 2.125rem;
+  --fd-3: 1.5rem;
+  --fd-4: 1.25rem;
+
+  --r-6: 6px;
+  --r-10: 10px;
+  --radius: 14px;
+  --pill: 999px;
+
+  --m-150: 150ms;
+  --m-400: 400ms;
+}
+
+/* --- the chassis ---------------------------------------------------------------------
+ *
+ * What follows was written twice, once per stylesheet, and two of the rules were already
+ * byte-identical. Anything a page needs to differ on - how wide its shell is, how its header
+ * lays out its contents, what its footer does with the space - it sets itself, after this.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  /* Two very low-saturation pools, so the flat ground does not read as an unstyled page. */
+  background-image:
+    radial-gradient(900px 500px at 15% -10%, rgba(77, 148, 255, 0.10), transparent 70%),
+    radial-gradient(700px 400px at 95% 8%, rgba(63, 208, 201, 0.07), transparent 70%);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A centred column with one rhythm between its parts. Width and padding are the page's, and
+   are set in the page's own stylesheet - the dashboard is a 1180px instrument panel, the
+   enrollment page a 660px card. */
+.shell {
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+header.bar {
+  display: flex;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The logo is a wordmark: sized by its height, left to find its own width. */
+header.bar img { height: 26px; width: auto; opacity: 0.9; }
+
+footer {
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-12);
+  color: var(--ink-mute);
+}
+
+/* The one surface both pages put content on. Padding is the page's: the dashboard stacks a
+   dozen of these and keeps them tight, the enrollment page has exactly one and lets it
+   breathe. */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+/* Size is the page's too - a 1.28rem bar heading on the dashboard, a 1.6rem h1 on a page
+   whose title is the whole message. */
+.title {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+/* Every link on both pages, rather than a class per page. A keyboard user reaching a link
+   with no visible focus ring cannot tell where they are, and the rule that guarantees they
+   can should not be one a new link has to remember to opt into. */
+a:focus-visible {
+  outline: 2px solid var(--sync);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

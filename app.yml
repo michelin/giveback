@@ -1,0 +1,82 @@
+# GitHub App manifest: the reference for every setting the App needs. The README's pre-filled
+# registration link carries the same settings for a development App.
+#
+# Editing this file does NOT change an App that already exists: change that one at
+# https://github.com/settings/apps/<your-app-slug>
+#
+# Reference: https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest
+#
+# ---------------------------------------------------------------------------
+# Change these before creating your App:
+#   name              your bot's name, unique across GitHub
+#   url               your organization's open-source homepage
+#   hook_attributes   where GitHub posts webhooks
+#   callback_urls     where GitHub sends the user after installing
+# ---------------------------------------------------------------------------
+
+name: "giveback"
+description: "Keeping tabs on our open-source adventures and contributions!"
+url: https://opensource.michelin.io/
+
+# Anyone can install it: employees install it on their personal accounts, which a private App
+# would not allow. A development App can stay private, since only its owner installs it.
+public: true
+
+# THE critical setting. Enrollment needs the OAuth code GitHub appends to the callback after an
+# install: it is how the app learns who installed it and proves they own the installation.
+# Without it, installing produces no code and enrollment never completes, with no error anywhere.
+request_oauth_on_install: true
+
+# ---------------------------------------------------------------------------
+# The two URLs below look alike and are reached by DIFFERENT parties, and getting them the wrong
+# way round is the easiest mistake to make here:
+#
+#   callback_urls        followed by the USER'S BROWSER, so http://localhost:3000/... is right
+#                        locally and needs no tunnel.
+#   hook_attributes.url  called by GITHUB'S SERVERS, which cannot reach localhost, so local
+#                        development needs a relay (smee.io).
+#
+# What goes wrong when they are swapped: docs/configuration.md, "Webhooks need a relay locally".
+# ---------------------------------------------------------------------------
+
+# Where the user's browser lands after installing. This is the enrollment endpoint, not a page.
+# Replace localhost with your deployed origin, and keep the localhost entry for development.
+#
+# The second entry is the dashboard's sign-in. GitHub refuses a redirect_uri it does not
+# recognise, and the failure reads as "the app is broken" rather than "one URL is missing".
+callback_urls:
+  - http://localhost:3000/callback
+  - http://localhost:3000/dashboard/callback
+
+# Where GitHub's servers post webhooks. Locally, a smee.io channel relaying to
+# http://localhost:3000/api/github/webhooks — create yours at https://smee.io/new
+hook_attributes:
+  url: https://smee.io/replace-me-with-your-own-channel
+  active: true
+
+# Installation lifecycle only: the enrollment signal and the suspend/unsuspend/delete
+# transitions (src/app.js subscribes to nothing else). GitHub delivers these to every App
+# anyway; the entry documents what the app consumes.
+default_events:
+  - installation
+
+# NO REPOSITORY OR ORGANISATION PERMISSIONS, on purpose: an installation's scope does not gate a
+# public read, so a token with none of them does everything the collection needs:
+#   GET /users/{login}/events              public activity feed
+#   GET /repositories/{id}/pulls/{number}  public pull requests
+#   GET /repositories/{id}                 public repository metadata
+#
+# `emails: read` is the ONE exception, and it is required. It is an ACCOUNT permission: it grants
+# nothing on any repository, organisation or line of code. `request_oauth_on_install` above
+# obtains a user access token, and the callback spends it on GET /user/emails to find a verified
+# address on an allowed domain. Without this line GitHub answers that call `403 Resource not
+# accessible by integration` and every enrollment fails.
+#
+# What to tell your security team, accurately. This App cannot read source code, private
+# repositories, issues, or any organisation's data: no repository or organisation permission is
+# requested and none would be granted. It reads one thing that is not public, once, at
+# enrollment: the installer's verified email addresses. Exactly one is stored
+# (github_installations.user_enrollment_email_address); the token is used for that single request
+# and discarded, never written down. See src/services/endpointService.js and src/utils/email.js.
+default_permissions:
+  emails: read

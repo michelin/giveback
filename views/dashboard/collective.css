@@ -1,0 +1,77 @@
+    /*
+     * The Overall tab. Served to every reader, after core.css.
+     *
+     * Everything else it draws is a shared component: what is left here are the two rankings that
+     * are not filtered lists, the step between the age bar and the list below it, and the marks
+     * on this tab's rows.
+     */
+
+    /* ---- the biggest ones we got into ------------------------------------------ */
+
+    /* Its place, then the project in display type: the first larger than the two after it,
+       the stars in the meta line below, the people under that. */
+    :where(#view-collective) .fish li { align-items: baseline; }
+
+    :where(#view-collective) .fish .place {
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    :where(#view-collective) .fish .repo {
+      display: block;
+      font-family: var(--display);
+      font-size: var(--fd-4);
+      font-weight: 700;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    :where(#view-collective) .fish li:first-child .repo { font-size: var(--fd-3); }
+
+    /* Everyone who got one in, all of them: the panel exists to say who, so it cannot become a
+       count with a "+3 others". */
+    :where(#view-collective) .faces { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+    :where(#view-collective) .face {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px 4px 4px;
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+      font-size: var(--fs-13);
+    }
+
+    :where(#view-collective) .face small {
+      font-size: var(--fs-12);
+      color: var(--ink-mute);
+    }
+
+    /* ---- awaiting a verdict ------------------------------------------------------ */
+
+    /* The age bar, then the list of the oldest: a bar's step apart, as two bars are, so the
+       list's chips do not read as part of the bar's legend. Nothing open, no bar, no gap. The id
+       only says which, inside :where(), so the rule weighs what a .bar-row rule does. */
+    :where(#view-collective) .bar-row:where(#r-ages) { margin-bottom: 20px; }
+
+    /* ---- the marks on a row ---------------------------------------------------- */
+
+    /* The badge sits on the name it qualifies, a space from it. */
+    :where(#view-collective) .rank .own-badge { margin-right: 4px; vertical-align: -2px; }
+
+    /* Ours, then elsewhere, side by side on a contributor's row. */
+    :where(#view-collective) .scopes { display: inline-flex; align-items: center; gap: 12px; }
+
+    /* A project's three outcomes, production's pictograms: merged in teal with its count in the
+       loud ink and bold, open in amber and closed in red with theirs quieter, a zero faded. */
+    :where(#view-collective) .gits { display: inline-flex; align-items: center; gap: 12px; font-size: var(--fs-12); }
+
+    :where(#view-collective) .git { display: inline-flex; align-items: center; gap: 4px; }
+    :where(#view-collective) .git svg { width: 12px; height: 12px; flex: 0 0 auto; }
+    :where(#view-collective) .git b { color: var(--ink-mute); }
+    :where(#view-collective) .git.merged svg { fill: var(--poll); }
+    :where(#view-collective) .git.merged b { color: var(--ink); }
+    :where(#view-collective) .git.open svg { fill: var(--warn); }
+    :where(#view-collective) .git.closed svg { fill: var(--fail); }
+    :where(#view-collective) .git.zero svg { opacity: 0.4; }
+    :where(#view-collective) .git.zero b { color: var(--ink-mute); }

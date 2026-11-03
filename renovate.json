@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "npmrc": "registry=https://registry.npmjs.org/",
+  "packageRules": [
+        {
+            "matchUpdateTypes": [
+                "minor",
+                "patch",
+                "digest"
+            ],
+            "addLabels": [
+                "renovate::minor"
+            ]
+        },
+        {
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "addLabels": [
+                "renovate::MAJOR"
+            ]
+        },
+        {
+            "matchDatasources": [
+                "npm"
+            ],
+            "registryUrls": [
+                "https://registry.npmjs.org/"
+            ]
+        }
+    ]
+}

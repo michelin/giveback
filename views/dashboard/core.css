@@ -1,0 +1,802 @@
+    /*
+     * What every tab of the dashboard wears: the page's own chassis, and the components more
+     * than one tab draws. Linked straight after public/base.css, before the tabs' own sheets.
+     *
+     * The palette, the type scale and the page chassis - the reset, body, .shell, header.bar
+     * and footer - come from public/base.css, which the page links first and shares with
+     * views/enroll.ejs. Nothing below redefines a token; what it does add to a shared rule is
+     * only what this page needs and the other does not.
+     *
+     * The sans face is the page's voice: every title, label, line and figure is set in it, its
+     * digits tabular. Mono is kept for what is literally machine text - the build line under the
+     * title, a job's name, a cron line, a variable, a setting's value, an error. Nothing is set in
+     * spaced capitals: a label is a word in sentence case, in a quieter ink. Every size is a
+     * token, and each has one job:
+     *
+     *   11        the variables a setting is read from, monograms - the floor
+     *   12        chips and pills, tooltips, a legend's share, table heads, the footer, the
+     *             build line, the mono lines of the Operations tab
+     *   13        panel subtitles, tile labels and lines, the nameplate's figures, row meta, bar
+     *             titles and bases, legends, filters, counters, the pager, the hint of an empty
+     *             state, table cells
+     *   15        body text, panel titles, tabs, row titles, the fact of an empty state
+     *   --fd-1        display 700: the nameplate, above 620px
+     *   --fd-2 / --fd-3  display 700: a tile's value, above and below 620px; the nameplate below
+     *   --fd-4        display 700: the title, the nameplate's figures, the two after a first
+     *   12px sans    every piece of text on a chart's canvas - its ticks and its axis titles -
+     *                set in core.js, since Chart.js draws it; its tooltip and legend are text,
+     *                sized above
+     *
+     * Spacing is an even number of pixels (or a 1-3px hairline), radii are --r-6, --r-10,
+     * --radius or --pill, and motion is --m-150 or --m-400.
+     */
+
+    /* Author styles beat the user agent whatever the specificity, so ANY rule that sets
+       `display` on an element the script hides silently un-hides it. `.grid-2 { display: grid }`
+       did exactly that: `hidden` was set on two panels and they stayed on the page, empty. One
+       !important here rather than a guard rule per layout class, because the next class to set
+       `display` will not come with a reminder. */
+    [hidden] { display: none !important; }
+
+    /* A column of figures lines up only if every digit is as wide as the others. */
+    body { font-variant-numeric: tabular-nums; }
+
+    /* Plex Sans is loaded at 400 and 500 only: a bold asked for at 600 or 700 would be
+       synthesised. Plex Mono has 600, and a bold figure in a mono line is drawn at it. */
+    b, strong { font-weight: 500; }
+
+    /* base.css centres it and sets the 22px rhythm. This is the width of an instrument panel and
+       the room its last panel needs above the fold. */
+    .shell {
+      max-width: 1180px;
+      padding: 28px 22px 56px;
+    }
+
+    /* The panels became the shell's GRANDchildren when the tab bar arrived, so the shell's
+       gap fell between the two views instead of between the panels and they rendered as one
+       slab. Each view carries the gap again.
+
+       `display: flex` here is one of the rules the global [hidden] above exists for: without
+       it the hidden view would render under the visible one. */
+    [role="tabpanel"] {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    /* ---- focus and targets ----------------------------------------------------- */
+
+    /* base.css gives every <a> a ring; these are the other things a keyboard lands on. Every
+       control is at least 44px tall, so a finger finds it too. The ring follows the control's own
+       corners: a chip stays a pill when it is focused. */
+    .tab:focus-visible,
+    summary:focus-visible,
+    .filters button:focus-visible,
+    .pager button:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--sync);
+      outline-offset: 2px;
+    }
+
+    summary {
+      min-height: 44px;
+      padding: 12px 0;
+      cursor: pointer;
+    }
+
+    /* ---- header ---------------------------------------------------------------- */
+
+    /* This header carries four things - logo, title, heartbeat, sign out - so unlike
+       the enrollment page's it has to space them and wrap. */
+    header.bar { gap: 18px; flex-wrap: wrap; }
+
+    /* Growing into the line beside the logo, from a 180px basis rather than from its widest
+       line: on a phone the title stays beside the logo, its build line wrapping under it, and
+       it is the heartbeat and sign out that go to a line of their own. */
+    .title { flex: 1 1 180px; min-width: 0; font-size: var(--fd-4); }
+
+    /* The build line: the app, its version and where it runs, as fragments a gap apart. */
+    .title small {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 12px;
+      margin-top: 2px;
+      font-family: var(--mono);
+      font-weight: 400;
+      font-size: var(--fs-12);
+      letter-spacing: 0;
+      color: var(--ink-mute);
+    }
+
+    .bar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    .heartbeat {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+      background: var(--panel);
+    }
+
+    .heartbeat i {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+      animation: beat 2.4s ease-out infinite;
+    }
+
+    .heartbeat.stale i { background: var(--fail); animation: none; }
+    .heartbeat.stale { border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+
+    @keyframes beat {
+      0%   { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0.55); }
+      70%  { box-shadow: 0 0 0 9px rgba(47, 208, 122, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0); }
+    }
+
+    a.plain { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
+    a.plain:hover { color: var(--ink); border-bottom-color: var(--sync); }
+
+    /* ---- the nameplate ------------------------------------------------------------ */
+
+    /* The reader's own line, above the tabs and the same on each, in two tiers: a nameplate,
+     * then a reading. A reader's own login may take the display size - the page's precedent is
+     * the top three, which sets a repository's name that large because the panel exists to
+     * celebrate it. Everything measured drops to one quiet row underneath, which is what keeps
+     * the first tier a nameplate and not a headline. Groups in that row are separated by space,
+     * never by punctuation.
+     */
+    .you {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    /* One size for both words, and colour is the only thing that separates them: the label is
+       ink, the name is the one saturated thing above the tabs. --now is the colour of the due
+       line every figure is measured against, which is the right borrow for the person being
+       measured. */
+    .you .nameplate {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 12px;
+      margin: 0;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: var(--fd-1);
+      line-height: 1.05;
+      letter-spacing: -0.025em;
+    }
+
+    .you .who { color: var(--now); overflow-wrap: anywhere; }
+
+    /* A role, not a measurement: the operator already knows they are one, so the chip is the
+       quietest thing on the line - neutral like the heartbeat pill, out of the display face, and
+       centred on the login as the face is. */
+    .you .operator {
+      align-self: center;
+      margin-left: 0;
+      font-family: var(--sans);
+      font-weight: 400;
+      letter-spacing: 0;
+      line-height: 1.6;
+      color: var(--ink-dim);
+      border-color: var(--line);
+    }
+
+    /* The face, at the size of the type beside it and centred on the line rather than left on
+       its baseline: a circle whose bottom edge is the baseline rides up past the cap height. */
+    #you-face { display: flex; align-self: center; }
+
+    .you .figs {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 22px;
+      margin: 0;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    .you .figs:empty { display: none; }
+
+    .you .figs > span { white-space: nowrap; }
+
+    /* The display face on the reader's own figures, and nothing else in the row. */
+    .you .figs b {
+      margin-right: 4px;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: var(--fd-4);
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+
+    /* Green, like every merge the job cards count: a merge is the one figure here somebody
+       outside decided. */
+    .you .figs b.landed { color: var(--ok); }
+
+    /* ---- tabs -------------------------------------------------------------------- */
+
+    /* No margin of its own: the shell's gap puts it as far from the nameplate as from the panel
+       it controls. */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .tab {
+      min-height: 44px;
+      font-family: var(--sans);
+      font-size: var(--fs-15);
+      font-weight: 500;
+      color: var(--ink-mute);
+      background: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+
+    .tab:hover { color: var(--ink); }
+
+    .tab[aria-selected="true"] {
+      color: var(--ink);
+      border-bottom-color: var(--sync);
+    }
+
+    /* ---- panels ------------------------------------------------------------------ */
+
+    .panel { padding: 20px; }
+
+    /* A panel names itself in a plain sentence-case heading, and so does the footnote: the
+       body size at 500, in full ink, so it reads before the quieter line under it. */
+    .panel > h2,
+    .footnote > h2 {
+      margin: 0 0 4px;
+      font-size: var(--fs-15);
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    /* The panel's base, unit or window, on one line under its title. */
+    .panel-sub {
+      max-width: 68ch;
+      margin: 0 0 18px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    /* Two columns, and the class says so. auto-fit with a 320px minimum resolved to THREE
+       tracks inside the 1,180px shell — measured on every .grid-2 on the page — so each pair of
+       panels was squeezed into the left two thirds and the third track stayed empty.
+       minmax(0, …) rather than 1fr so a wide table or chart cannot blow its own track out. */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    /* ---- tiles ------------------------------------------------------------------- */
+
+    /* 200px rather than the 210 four tiles would take: at 210 a shell 853px wide - a 901px
+       window - fits three, and the fourth sits alone on a row until 924px. At 200 the row goes
+       from four straight to the two below 900px. */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin: 0;
+    }
+
+    .tile {
+      position: relative;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+
+    /* A hairline in the colour of whatever the tile counts: the only place a tile is tinted. */
+    .tile::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--tint, var(--line));
+    }
+
+    .tile dt {
+      margin: 0 0 6px;
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+    }
+
+    /* A tab's own row lays every label and every value on rows shared across the row, so a label
+       that wraps to a second line leaves the values of its row on one level. */
+    [role="tabpanel"] > .tiles > .tile {
+      display: grid;
+      grid-row: span 2;
+      grid-template-rows: subgrid;
+      row-gap: 0;
+    }
+
+    /* The value alone on its line, and under it the smaller lines: its base first, then the
+       sub-line. The base is still the value's next word, so "29 of 34 judged" is what the tile
+       reads when it is copied or spoken; it is only set on the line below. */
+    .tile dd { margin: 0; }
+
+    .tile .v {
+      display: block;
+      font-family: var(--display);
+      font-size: var(--fd-2);
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    /* The fragments of the base and of the sub-line, a gap apart: a narrow tile breaks between
+       two of them, never inside one unless it is wider than the tile - a job's name, which
+       overflow-wrap then breaks rather than letting the tile clip it. */
+    .tile small,
+    .tile .sub {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 12px;
+      margin: 8px 0 0;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+      overflow-wrap: anywhere;
+    }
+
+    .tile small + .sub { margin-top: 0; }
+
+    .tile small > span,
+    .tile dd > .sub > span { min-width: 0; }
+
+    .tile.late .v { color: var(--now); }
+
+    /* A place and what it is out of, on one line: "8th of 42", the place in the tile's tint. */
+    .tile.inline .v { display: inline; color: var(--tint); }
+    .tile.inline small { display: inline; margin: 0 0 0 8px; font-size: var(--fs-13); }
+    .tile.inline small + .sub { margin-top: 8px; }
+
+    .tile.zero .v { color: var(--ink-mute); }
+
+    /* A project's stars, the one figure of Overall set in the loud colour: a design choice, and
+       the one use of it that is not relative to now. */
+    .stars { color: var(--now); font-weight: 600; }
+
+    /* ---- charts ------------------------------------------------------------------ */
+
+    /* Drawn by Chart.js, which sizes a chart to its box: the box is what has a height, and it holds
+       the canvas alone, relative, as Chart.js asks. A chart of two lanes is a lane taller; a bar's
+       box is its 14px bar and a hairline either side. */
+    .plot { position: relative; height: 232px; }
+    .plot.tall { height: 360px; }
+    .bar-row .plot { height: 16px; }
+
+    /* Written in the page by core.js, over the chart: a tooltip painted in a 16px canvas is cut. */
+    .chart-tip {
+      position: absolute;
+      z-index: 2;
+      transform: translate(-50%, calc(-100% - 8px));
+      display: grid;
+      gap: 4px;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--r-6);
+      font: var(--fs-12) / 1.4 var(--sans);
+      color: var(--ink-dim);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .chart-tip b { color: var(--ink); font-weight: 500; }
+    .chart-tip span { display: flex; align-items: center; gap: 8px; }
+    .chart-tip i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .chart-tip small { color: var(--ink-mute); }
+
+    /* A chart's key, in the page under its canvas: each entry its key, its label, its figure in
+       full ink, and what the figure is a share of. The entries wrap whole, a clear
+       gap apart, so no separator is needed between them; one at zero recedes, as a scope mark
+       does. A note after them has a line of its own. Nothing to key, no room kept for it. */
+    .legend-list {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 8px 20px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .legend-list:empty { margin: 0; }
+
+    .legend-list > li { display: inline-flex; align-items: baseline; gap: 4px; }
+
+    .legend-list .legend-key {
+      flex: 0 0 auto;
+      align-self: center;
+      width: 12px;
+      height: 12px;
+      margin-right: 4px;
+      fill: var(--key);
+    }
+
+    .legend-list .legend-key.line { width: 24px; height: 4px; stroke: var(--key); stroke-width: 2; }
+
+    .legend-list .legend-label { font-size: var(--fs-13); color: var(--ink-dim); }
+
+    .legend-list b {
+      font-size: var(--fs-13);
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .legend-list small { font-size: var(--fs-12); color: var(--ink-mute); }
+
+    .legend-list .zero b { color: var(--ink-mute); }
+    .legend-list .zero .legend-key { opacity: 0.4; }
+
+    .legend-list .legend-note { flex-basis: 100%; font-size: var(--fs-13); color: var(--ink-mute); }
+
+    .bar-row + .bar-row { margin-top: 20px; }
+
+    .bar-row > h3 {
+      margin: 0 0 8px;
+      font-family: var(--sans);
+      font-size: var(--fs-13);
+      font-weight: 500;
+      color: var(--ink-dim);
+    }
+
+    .bar-row .base {
+      margin-left: 8px;
+      font-size: var(--fs-13);
+      font-weight: 400;
+      color: var(--ink-mute);
+    }
+
+    /* ---- filtered lists ---------------------------------------------------------- */
+
+    .list-tools { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 12px; }
+
+    /* A list with no rows at all has no chips and no counter, and their room goes with them. The
+       margin rather than display: the counter stays in the tree, the live region it has to be. */
+    .list-tools:empty,
+    .table-count:empty { margin: 0; }
+
+    .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+    .filters .k {
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    .filters button {
+      min-height: 44px;
+      padding: 0 16px;
+      font-family: var(--sans);
+      font-size: var(--fs-13);
+      color: var(--ink-dim);
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+      cursor: pointer;
+    }
+
+    .filters button b { margin-left: 4px; color: var(--ink); }
+    .filters button b.zero { color: var(--ink-mute); }
+
+    /* Pressed is a filled chip with a --sync border and count; focus is the ring outside it, and
+       only that - a ring inside the border would read as the pressed one. */
+    .filters button[aria-pressed="true"] {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--sync) 16%, var(--panel-2));
+      border-color: var(--sync);
+    }
+
+    .filters button[aria-pressed="true"] b { color: var(--sync); }
+
+    /* Every list resets the indent the browser adds, rows or groups. */
+    .rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+
+    .rank li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .rank li:last-child { border-bottom: 0; }
+    .rank .grow { flex: 1 1 auto; min-width: 0; }
+    /* Except in a list of pull requests, whose title is what the row is about: there it wraps,
+       since on a phone, with no hover to read the rest, two titles cut at the same word are one.
+       Inline, so the link's underline follows every line it wraps to. */
+    :is(#y-list, #r-pending, #m-list) .rank .name {
+      display: inline;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    /* inline-block, not block: these names are links, and a block one stretches its underline
+       across the whole row - a 15-character repository name underlined for 465px. */
+    .rank .name {
+      display: inline-block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: bottom;
+    }
+    /* A line of its own under the name, its fragments a gap apart: the line breaks between two
+       of them, and inside one only when that one is wider than the row. */
+    .rank .meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0 12px;
+      margin-top: 2px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+    .rank .meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+    /* A figure and its unit on one line: "200 d" broken in two reads as two figures. */
+    .rank .score { text-align: right; white-space: nowrap; }
+
+    .rank li.group { display: block; padding: 0; }
+
+    .rank li.group > ul { list-style: none; margin: 0; padding: 0; }
+
+    .group-head {
+      margin: 16px 0 4px;
+      font-size: var(--fs-13);
+      font-weight: 500;
+      color: var(--ink-dim);
+    }
+
+    .table-count {
+      margin: 12px 0 0;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    /* "41 of 41 match." says nothing a reader can see the list does not, so it is not shown -
+       but it stays read out, the live region that says a chip pressed back to all let
+       everything through again. */
+    .table-count.whole {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    /* Under the counter: the page's first and last rows between the two buttons. */
+    .pager {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      margin-top: 12px;
+      font-size: var(--fs-13);
+      color: var(--ink-mute);
+    }
+
+    .pager button {
+      min-height: 44px;
+      padding: 0 16px;
+      font: inherit;
+      color: var(--ink-dim);
+      background: none;
+      border: 1px solid var(--line);
+      border-radius: var(--pill);
+      cursor: pointer;
+    }
+
+    .pager button:hover:not(:disabled) { color: var(--ink); border-color: var(--sync); }
+    .pager button:disabled { cursor: default; opacity: 0.5; }
+
+    /* ---- empty states ------------------------------------------------------------ */
+
+    .nothing {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 16px 20px;
+      border: 1px dashed var(--line);
+      border-radius: var(--r-10);
+      color: var(--ink-mute);
+    }
+
+    .nothing b { font-size: var(--fs-15); color: var(--ink-dim); }
+    .nothing span { font-size: var(--fs-13); }
+
+    /* ---- marks ------------------------------------------------------------------- */
+
+    /* The three outcomes, each a shape, a word and a hue: none of the three carries it alone. */
+    .outcome { display: inline-flex; align-items: center; gap: 4px; }
+    .outcome svg { width: 12px; height: 12px; flex: 0 0 auto; }
+    .outcome.merged svg { fill: var(--poll); }
+    .outcome.open svg { fill: var(--warn); }
+    .outcome.closed svg { fill: var(--fail); }
+    .outcome.unknown svg { fill: var(--ink-mute); }
+
+    /* Which forge, as its own mark rather than the word. The shape carries it, in one neutral
+       ink for both: the hues on the same row already mean ours and elsewhere. */
+    .forgemark { width: 13px; height: 13px; flex: 0 0 auto; fill: var(--ink-dim); }
+
+    /* The badge marking a repository this company owns. The logo is a wordmark, so it is sized
+       by its height and left to find its own width - a square box would squash it. */
+    .own-badge {
+      height: 13px;
+      width: auto;
+      flex: 0 0 auto;
+      opacity: 0.85;
+    }
+
+    /* Ours or elsewhere, by the glyph; the count beside it. A zero recedes rather than
+       sitting level with the one that has something: the glyph faded, the figure in the
+       quietest ink that still reads. */
+    .scope-mark { display: inline-flex; align-items: center; gap: 4px; }
+    .scope-mark img { height: 12px; width: auto; flex: 0 0 auto; }
+    .scope-mark svg { width: 12px; height: 12px; flex: 0 0 auto; stroke: var(--poll); }
+    .scope-mark b { color: var(--ink); }
+    .scope-mark.zero :is(img, svg) { opacity: 0.4; }
+    .scope-mark.zero b { color: var(--ink-mute); }
+
+    /* A person, by their GitHub face, round, at the size marks.face() gives it. The box is fixed
+       here and not by the image, so a slow or blocked avatar holds its place in the panel's
+       second ground rather than reflowing the row as it arrives, and a ring keeps a dark face
+       from sinking into the panel. Inline in a meta line, it sits on the line's middle. */
+    .avatar {
+      width: var(--size);
+      height: var(--size);
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--panel-2);
+      box-shadow: 0 0 0 1px var(--line);
+      object-fit: cover;
+      vertical-align: middle;
+    }
+
+    .rank .meta .avatar { margin-right: 4px; }
+
+    /* In the one place with no login to fetch a face by: the author a lookup could not name. */
+    .monogram {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: var(--fs-11);
+      color: var(--ink-mute);
+    }
+
+    /* A label on a row: a contribution recorded by hand, the reader's own. Labelled rather than
+       set apart, so it reads as a chip and not as a warning. */
+    .chip {
+      margin-left: 8px;
+      padding: 0 8px;
+      font-size: var(--fs-12);
+      white-space: nowrap;
+      color: var(--sync);
+      border: 1px solid color-mix(in srgb, var(--sync) 45%, transparent);
+      border-radius: var(--pill);
+    }
+
+    /* The reader's own row, in a list or a table, beside the `you` chip it carries: a light tint
+       and a rule on its left edge, defined once for every tab that marks one. A list row bleeds
+       into the panel's padding rather than indenting, so what it holds stays in line with the
+       rows around it. A filtered list writes each <li> itself, so its row is found by what it
+       holds. */
+    .rank li.yours,
+    .rank li:has(> .yours),
+    .users tr.yours > td { background: color-mix(in srgb, var(--sync) 6%, transparent); }
+    .rank li.yours,
+    .rank li:has(> .yours) { margin: 0 -8px; padding: 8px; box-shadow: inset 2px 0 0 var(--sync); }
+    .users tr.yours > td:first-child { box-shadow: inset 2px 0 0 var(--sync); }
+
+    /* Every repository name in these tabs is a link to a forge. Left alone they take the
+       browser default #0000EE, which against this ground is all but unreadable - and the
+       manual-entry table was shipped for an hour looking exactly like that, because this rule
+       named only one view. */
+    #view-mine a,
+    #view-collective a,
+    #view-ops a {
+      color: var(--ink);
+      text-decoration: none;
+      border-bottom: 1px solid var(--line);
+    }
+
+    #view-mine a:hover,
+    #view-collective a:hover,
+    #view-ops a:hover { color: var(--sync); border-bottom-color: var(--sync); }
+
+    /* ---- notice ------------------------------------------------------------------ */
+
+    .notice {
+      font-size: var(--fs-13);
+      padding: 12px 16px;
+      border-radius: var(--r-10);
+      border: 1px solid color-mix(in srgb, var(--fail) 40%, transparent);
+      background: color-mix(in srgb, var(--fail) 8%, transparent);
+      color: color-mix(in srgb, var(--fail) 30%, var(--ink));
+    }
+
+    .notice a { color: inherit; }
+
+    /* Clipped rather than display:none while it has nothing to say: it is the page's live
+       region, and one outside the accessibility tree is not announced when it appears. */
+    .notice:not(.show) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      padding: 0;
+      border: 0;
+    }
+
+    /* ---- the footnote and the footer --------------------------------------------- */
+
+    .footnote { display: flex; flex-direction: column; gap: 12px; }
+
+    .footnote dl {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 72ch);
+      gap: 8px 24px;
+      margin: 0;
+      font-size: var(--fs-13);
+    }
+
+    .footnote dt {
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .footnote dd { margin: 0; color: var(--ink-dim); }
+
+    /* Several notes side by side rather than the enrollment page's one line. */
+    footer { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+
+    /* ---- breakpoints ------------------------------------------------------------- */
+
+    /* A pair stacks, and a row of tiles goes to two columns rather than leaving one orphan.
+       minmax(0, …) again: a bare 1fr is at least as wide as its content, and a chart's canvas,
+       sized to its track at the last width, would hold the track at that width instead. */
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: minmax(0, 1fr); }
+      .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 620px) {
+      .shell { padding: 20px 16px 40px; }
+      .bar-right { margin-left: 0; }
+      .tile .v { font-size: var(--fd-3); }
+      .you .nameplate { font-size: var(--fd-2); }
+      .footnote dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+      .footnote dd + dt { margin-top: 8px; }
+    }

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080c17">
+  <title><%= page.title %> · giveback</title>
+
+  <%# The contribution heart, from public/favicon.svg. SVG only: a browser that cannot read one
+      falls back to /favicon.ico, which this app does not serve, and simply shows nothing. %>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+  <%#
+    The same three faces the dashboard loads, from the same URL, so a visitor who reaches
+    both pages fetches them once. preconnect and a <link> rather than an @import inside a
+    stylesheet: an @import is a serial fetch - the browser cannot ask for the font until it
+    has parsed the CSS that names it.
+  %>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+  <%# base.css first: enroll.css consumes the palette and the chassis, and redefines neither. %>
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/enroll.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="bar">
+      <img src="/images/company_logo.svg" alt="Company logo">
+    </header>
+
+    <%#
+      The tone class paints the eyebrow and the lead's left rule. It says whose problem this
+      is - the reader's to fix, nobody's, or ours - before a single sentence has been read.
+    %>
+    <main class="panel tone-<%= page.tone %>">
+      <p class="eyebrow"><%= page.eyebrow %></p>
+      <h1 class="title"><%= page.title %></h1>
+
+      <%#
+        Unescaped on purpose: the copy carries links and emphasis, and every string comes
+        from src/utils/enrollmentPages.js, never from a request.
+      %>
+      <div class="lead"><%- page.lead %></div>
+
+      <% if (page.steps.length) { %>
+        <p class="steps-title">What to do</p>
+
+        <ol class="steps">
+          <% page.steps.forEach(function (step, index) { %>
+            <li class="step-item">
+              <span class="step-number"><%= index + 1 %></span>
+              <span class="step-content"><%- step %></span>
+            </li>
+          <% }); %>
+        </ol>
+      <% } %>
+
+      <%#
+        Hidden when the app could not identify itself: sending someone to install the wrong
+        instance of this bot is worse than showing no button at all.
+      %>
+      <% if (retryUrl) { %>
+        <a class="cta" href="<%= retryUrl %>"><%= page.cta %></a>
+      <% } %>
+    </main>
+
+    <footer>
+      giveback, by <a href="https://opensource.michelin.io/" target="_blank" rel="noopener noreferrer">Michelin Open Source</a>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# PostgreSQL for local development only. The app itself is not containerized.
+#
+#   docker compose up -d --wait     start it, schema included, and return once it accepts
+#                                   connections (without --wait, starting the app next is a race)
+#   POSTGRES_HOST_PORT=5433 docker compose up -d --wait
+#                                   if something already listens on 5432; then set DB_PORT=5433
+#   docker compose logs -f          watch it
+#   docker compose down             stop it, keeping the data
+#   docker compose down -v          stop it and wipe the data
+#
+# init.sql runs on the FIRST start only, when the data directory is created. To re-apply it
+# after a schema change: docs/database.md#refreshing-the-compose-database.
+#
+# The public postgres image is used on purpose. Behind a corporate registry mirror, pull it
+# through your mirror instead.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # Matches the local values in .env.local: DB_HOST=localhost, DB_USER=postgres, and the
+      # defaults DB_NAME=postgres and DB_PORT=5432. No password: the app only requires one when
+      # NODE_ENV=production.
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      # Local only, and safe because the port below is bound to loopback.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # POSTGRES_HOST_PORT is read by Compose, not by the app: set DB_PORT to the same value.
+      # Loopback only: the database trusts every connection, so it must not face the network.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Applied once, on first start. `:ro` because the container has no business editing it.
+      - ./init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      # What `docker compose up --wait` waits for, and the health column of `docker compose ps`.
+      # Over TCP on purpose: while init.sql runs, the image serves the Unix socket only, so a
+      # socket check would report healthy before the schema exists.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  postgres-data:

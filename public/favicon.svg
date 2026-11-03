@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="giveback">
+  <!--
+    The contribution heart: the squares of a contribution graph, lit up in the shape of a heart.
+    It is what the product adds up, drawn in the grid every developer already reads.
+
+    Snapped to the pixel grid for the size a tab actually draws, 16 px: every cell is 2 px with a
+    1 px gap, so nothing lands on a half pixel and blurs. Two brightnesses only, because the finer
+    steps of docs/img/logo.svg disappear at this size.
+
+    The colours are the panel and now tokens of public/base.css, written out by value: a
+    standalone SVG has no stylesheet to read them from. Their names are spelled without their
+    leading dashes on purpose, because two hyphens in a row end an XML comment.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0f1626"/>
+  <rect x="2" y="2" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="8" y="2" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="14" y="2" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="20" y="2" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="26" y="2" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="2" y="8" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="8" y="8" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="14" y="8" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="20" y="8" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="26" y="8" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="2" y="14" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="8" y="14" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="14" y="14" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="20" y="14" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="26" y="14" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="2" y="20" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="8" y="20" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="14" y="20" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="20" y="20" width="4" height="4" rx="1" fill="#ffce00" fill-opacity="0.78"/>
+    <rect x="26" y="20" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="2" y="26" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="8" y="26" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="14" y="26" width="4" height="4" rx="1" fill="#ffce00"/>
+    <rect x="20" y="26" width="4" height="4" rx="1" fill="#1f2d4a"/>
+    <rect x="26" y="26" width="4" height="4" rx="1" fill="#1f2d4a"/>
+</svg>

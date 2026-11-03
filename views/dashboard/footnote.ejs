@@ -1,0 +1,39 @@
+<%#
+  How the figures on every tab are computed. The same for both tiers, rendered by the server once
+  and never rewritten by a script: it states what the queries decide, so that any figure on the
+  page can be checked against it - and nothing operational, since every reader is sent it.
+%>
+<% const count = (value) => (Number.isFinite(value) ? value.toLocaleString('en-US') : '—'); %>
+<% const list = (values) => values.join(', ') || '—'; %>
+<section class="footnote" aria-labelledby="b-footnote">
+  <h2 id="b-footnote">How these figures are computed</h2>
+  <dl>
+    <dt>Ours</dt>
+    <dd><% if (footnote.ownOrgs.length > 0) { %>Repositories owned by <%= list(footnote.ownOrgs) %>; every other repository is elsewhere.<% } else { %>No owner is configured, so every repository is elsewhere.<% } %></dd>
+
+    <dt>Who can enrol</dt>
+    <dd>A GitHub account with a verified address at <%= list(footnote.allowedEmailDomains) %>.</dd>
+
+    <dt>Merged</dt>
+    <dd>Pull requests a person opened that were merged. Pull requests opened by a bot are left out:
+      <%= count(footnote.bots?.byABot) %>, of which <%= count(footnote.bots?.mergedByABot) %> merged.</dd>
+
+    <dt>Judged</dt>
+    <dd>Merged, plus closed without a merge. Rates are taken over judged.</dd>
+
+    <dt>Contributors</dt>
+    <dd>Logins that opened a pull request, counted once whatever their case. First-time is a
+      login's first pull request opened here. A rank since day one is on pull requests merged; a
+      rank in a month, on pull requests opened in it.</dd>
+
+    <dt>Percentiles</dt>
+    <dd>A median needs at least <%= footnote.thresholds.p50 %> values and a p90 at least <%= footnote.thresholds.p90 %>; below
+      that the figure reads "—" beside its base, and a chart leaves a gap.</dd>
+
+    <dt>Dates</dt>
+    <dd>Months and days are cut in UTC.</dd>
+
+    <dt>History</dt>
+    <dd>Collection starts at each person's enrolment; earlier months are incomplete.</dd>
+  </dl>
+</section>

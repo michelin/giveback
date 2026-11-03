@@ -1,0 +1,29 @@
+<%#
+  The reader's own contributions. Rendered for everyone, because this is the least
+  privileged thing on the page: it answers about the person reading it, and the report
+  already publishes the same pull requests in aggregate to every reader.
+%>
+<section id="view-mine" role="tabpanel" aria-labelledby="tab-mine" tabindex="0"<% if (landing !== 'mine') { %> hidden<% } %>>
+  <dl class="tiles" id="y-tiles"></dl>
+
+  <%# y-time, y-bars-panel and y-list-sub wait hidden for the first read, which shows them once
+      it has a row: a tab still loading shows its titles, not a blank chart and an empty bar. %>
+  <section class="panel" id="y-time" hidden>
+    <h2>How it added up</h2>
+    <p class="panel-sub" id="y-curve-sub"></p>
+    <div id="y-curve"></div>
+  </section>
+
+  <section class="panel" id="y-bars-panel" hidden>
+    <h2>Outcome and scope</h2>
+    <p class="panel-sub">All your pull requests</p>
+    <div class="bar-row" id="y-outcome"></div>
+    <div class="bar-row" id="y-scope"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Every one of them</h2>
+    <p class="panel-sub" id="y-list-sub" hidden>Newest first</p>
+    <div id="y-list"></div>
+  </section>
+</section>

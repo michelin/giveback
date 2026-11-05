@@ -15,8 +15,8 @@ const logger = getLogger("dashboardAuth");
  *
  * The id and never the login: a login is released when its owner renames, and whoever registers
  * it next would otherwise walk into the previous owner's session and enrolment. The login the
- * rest of the dashboard reads - the operator list included - is the one stored on the enrolled
- * row, looked up from the id on each request.
+ * rest of the dashboard reads is the one stored on the enrolled row, looked up from the id on
+ * each request. The operator list reads no login at all: it holds account ids.
  */
 
 const SESSION_COOKIE = 'oss_dashboard';
@@ -49,26 +49,29 @@ const secret = process.env.SESSION_SECRET || null;
  */
 export const isDashboardEnabled = () => Boolean(secret);
 
-// The operator tier. Empty means nobody is an operator, which is the safe default: a setting
-// that fails to arrive degrades the page for a handful of operators instead of publishing
-// enrollment addresses to everyone enrolled.
-const operatorLogins = new Set(
-  (process.env.DASHBOARD_ALLOWED_LOGINS ?? '')
+// The operator tier, by GitHub account id. Never by login: a login is released when its owner
+// renames, and whoever registers it next and enrolls would inherit the tier with it. Empty means
+// nobody is an operator, which is the safe default: a setting that fails to arrive degrades the
+// page for a handful of operators instead of publishing enrollment addresses to everyone
+// enrolled. validateEnv refuses an entry that is not an id.
+const operatorIds = new Set(
+  (process.env.DASHBOARD_OPERATOR_IDS ?? '')
     .split(',')
-    .map((login) => login.trim().toLowerCase())
+    .map((id) => id.trim())
     .filter(Boolean)
+    .map(Number)
 );
 
 /**
- * Is this login an operator?
+ * Is this GitHub account an operator?
  *
  * Decided per reader, not per process: the page is open to everyone enrolled, and the tier only
  * governs the Operations tab - the jobs, the queue, the accounts with their enrollment addresses,
- * the failure causes and the page's buttons. GitHub logins are case-insensitive, so the
- * comparison is too.
+ * the failure causes and the page's buttons. Matched on the account id the session carries, the
+ * same immutable key the session itself is: a rename neither loses the tier nor hands it on.
+ * @param {?number} userId - GitHub account id
  */
-export const isOperator = (login) =>
-  operatorLogins.has(String(login ?? '').toLowerCase());
+export const isOperator = (userId) => operatorIds.has(userId);
 
 /**
  * Hand-parsed rather than through cookie-parser: two cookies on one route is not worth a
@@ -344,10 +347,10 @@ export const requireDashboardAccess = async (req, res, next) => {
 
     req.dashboardLogin = login;
     // Per request, like the authorization above, but from the list read when the process started:
-    // a change to DASHBOARD_ALLOWED_LOGINS takes effect once the app restarts, which saving an
-    // App Service setting does. Matched against the stored login, never one the browser sent:
-    // an operator who renames keeps the tier only once the list names the new login.
-    req.isOperator = isOperator(login);
+    // a change to DASHBOARD_OPERATOR_IDS takes effect once the app restarts, which saving an
+    // App Service setting does. Matched on the signed session's account id, never on a login,
+    // which a rename releases to whoever registers it next.
+    req.isOperator = isOperator(userId);
     next();
   } catch (error) {
     next(error);

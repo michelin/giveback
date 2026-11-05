@@ -34,7 +34,7 @@ const OPTIONAL_ENV_VARS = {
   OCTOKIT_HTTP_PROXY: '(none)',
   WEBHOOK_PROXY_URL: '(none - local development only)',
   SESSION_SECRET: '(none - the dashboard stays disabled)',
-  DASHBOARD_ALLOWED_LOGINS: '(none - nobody is an operator)',
+  DASHBOARD_OPERATOR_IDS: '(none - nobody is an operator)',
   GITLAB_API_HOSTS: 'gitlab.com',
   JOB_RUN_RETENTION_DAYS: '7',
 };
@@ -104,6 +104,17 @@ export const validateEnv = () => {
     throw new Error(`SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} characters, ${MIN_SESSION_SECRET_LENGTH} minimum) - generate one with: openssl rand -hex 32`);
   }
 
+  // A login pasted here would match no session and make its owner silently no operator, so an
+  // entry that is not an account id fails the boot with the way to find the right one.
+  const notIds = (process.env.DASHBOARD_OPERATOR_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id && !(/^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id))));
+
+  if (notIds.length > 0) {
+    throw new Error(`DASHBOARD_OPERATOR_IDS holds entries that are not GitHub account ids: ${notIds.join(', ')} - find an id with: gh api users/<login> --jq .id`);
+  }
+
   // A smee channel relays every webhook through a third party, to anybody else who holds its URL
   // as well - fine for a laptop GitHub cannot reach, never for an instance it can.
   if (isProduction && process.env.WEBHOOK_PROXY_URL) {
@@ -132,6 +143,14 @@ export const validateEnv = () => {
   // The cron defaults differ between modes, so the active mode is stated: an unset NODE_ENV
   // silently gives a hosted deployment the development cadence.
   logger.info(`environment validated - NODE_ENV=${process.env.NODE_ENV || 'development (unset)'}`);
+
+  // Only the exact word turns production on, so `prod` or `Production` silently runs a hosted
+  // instance as development, without the safeguards below. Warned rather than refused: the
+  // collection still works, and a boot that stops it over a word is the worse failure.
+  if (process.env.NODE_ENV && !['development', 'production'].includes(process.env.NODE_ENV)) {
+    logger.warn(`unknown NODE_ENV=${process.env.NODE_ENV}, neither development nor production - running as development: no database TLS by default, no Secure cookie, no HSTS, no trust proxy, DB_PASSWORD not required, development crons`);
+  }
+
   logger.info(`enrollment accepts verified addresses on ${allowedDomains.join(', ')}`);
 
   // The parsed list, not the presence of the variable: a typo is truthy and would otherwise be
@@ -143,9 +162,9 @@ export const validateEnv = () => {
 
   // A security decision, so it is stated at boot rather than discovered by whoever is refused.
   if (process.env.SESSION_SECRET) {
-    const operators = process.env.DASHBOARD_ALLOWED_LOGINS;
+    const operators = process.env.DASHBOARD_OPERATOR_IDS;
 
     logger.info(`dashboard readable by any enrolled user, operator detail for ${
-      operators ? operators : 'nobody - DASHBOARD_ALLOWED_LOGINS is unset'}`);
+      operators ? `account ids ${operators}` : 'nobody - DASHBOARD_OPERATOR_IDS is unset'}`);
   }
 };

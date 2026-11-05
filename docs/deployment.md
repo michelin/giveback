@@ -35,7 +35,7 @@ The callback URLs are followed by the user's **browser**, the webhook URL is cal
 
 Set the variables from [`.env.example`](../.env.example) in your platform's settings (or in a
 `.env` file, read by `npm start`), and add `NODE_ENV=production`, which few platforms set for
-you. In production the app refuses to start with `WEBHOOK_PROXY_URL` set, or with TLS to a
+you. Spelt exactly: `prod` or `Production` runs as development, with a `warn` at boot. In production the app refuses to start with `WEBHOOK_PROXY_URL` set, or with TLS to a
 database that is not on the same machine turned off. `ALLOWED_EMAIL_DOMAINS` has no default on purpose: set it to **your** domains. Reference:
 [docs/configuration.md](./configuration.md).
 
@@ -63,7 +63,7 @@ a platform that injects its own settings.
 
 Set `SESSION_SECRET` (`openssl rand -hex 32`) and `GET /dashboard` serves three tabs: **Me**, what
 was recorded under the reader's login; **Overall**, the contribution report; and **Operations**,
-the jobs, queue and accounts, for the logins in `DASHBOARD_ALLOWED_LOGINS` only. Any enrolled
+the jobs, queue and accounts, for the account ids in `DASHBOARD_OPERATOR_IDS` only. Any enrolled
 employee can read it. Read [docs/dashboard.md](./dashboard.md) first: it needs the second
 callback URL on the App.
 

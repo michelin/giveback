@@ -11,7 +11,8 @@ machine is doing right now, for the operator tier only.
 2. Register `https://<your-host>/dashboard/callback` as a **second callback URL** on the GitHub
    App. [`app.yml`](../app.yml) lists it; an existing App needs it added by hand. GitHub refuses an
    unregistered `redirect_uri`, and the failure reads as "the app is broken".
-3. Optionally, list the operators in `DASHBOARD_ALLOWED_LOGINS`.
+3. Optionally, list the operators' GitHub account ids in `DASHBOARD_OPERATOR_IDS`
+   (`gh api users/<login> --jq .id`).
 
 All three settings are in [configuration.md](./configuration.md#dashboard).
 
@@ -38,7 +39,7 @@ nothing. The population that may read the page is the population being measured.
 | | Who | Tabs |
 | --- | --- | --- |
 | **reader** (default) | any enrolled user | **Me** and **Overall** |
-| **operator** | the logins in `DASHBOARD_ALLOWED_LOGINS` | the same two, then **Operations** |
+| **operator** | the account ids in `DASHBOARD_OPERATOR_IDS` | the same two, then **Operations** |
 
 The line is **operational detail, not identity**. A pull request is public on github.com, and the
 people who opened it are who the page celebrates; an enrollment address, a retirement reason, a
@@ -50,9 +51,10 @@ For a reader the tab is **absent, not hidden**: the template is not rendered, th
 before reading anything. Unset means **nobody** is an operator: a setting that fails to arrive
 degrades the page for a handful of people instead of publishing addresses to everyone.
 
-The decision is made **once, on the server**, in `getSnapshot()`. A reader's snapshot is built by
-**picking** fields (`readerSnapshot()`), so a field added to the operational half later is
-withheld by default.
+The decision is made **once, on the server**, in `requireDashboardAccess` (`req.isOperator`), and
+everything else reads it: `getSnapshot()`, the asset route and every Operations route. A reader's
+snapshot is built by **picking** fields (`readerSnapshot()`), so a field added to the operational
+half later is withheld by default.
 
 ### Why the cookie carries an account id and never a permission
 
@@ -61,12 +63,13 @@ request re-reads the database, so an uninstall or a suspension closes the door o
 rather than at the end of an eight-hour session.
 
 An id, never a login, because a login is released when its owner renames and whoever registers it
-next would otherwise inherit the previous owner's session and enrollment. The login the rest of the
-page uses, for the Me tab and for the operator tier, is the one stored on the enrolled row, looked up
-from the id on each request. So:
+next would otherwise inherit the previous owner's session, enrollment and operator tier. The
+operator tier is matched on that same id. The login the rest of the page uses, for the Me tab, is
+the one stored on the enrolled row, looked up from the id on each request. So:
 
-- An operator who renames on GitHub keeps the tier only once `DASHBOARD_ALLOWED_LOGINS` names the
-  new login. The list is read when the process starts: a change takes effect on restart.
+- An operator who renames on GitHub keeps the tier, and whoever registers the freed login does not
+  get it. `DASHBOARD_OPERATOR_IDS` is read when the process starts: a change takes effect on
+  restart.
 - A session issued by an earlier version, which held a login, reads as no session: its holder signs
   in once more.
 

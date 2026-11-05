@@ -109,7 +109,7 @@ describe("the tabs", () => {
       const html = await renderPage(snapshotOf(), { mine, report: reportOf() });
 
       for (const absent of [
-        'Operations', 'aria-controls="view-ops"', 'id="view-ops"', 'assets/ops.', 'DASHBOARD_ALLOWED_LOGINS',
+        'Operations', 'aria-controls="view-ops"', 'id="view-ops"', 'assets/ops.', 'DASHBOARD_OPERATOR_IDS',
         '/dashboard/manual', '/dashboard/users/',
       ]) {
         assert.ok(!html.includes(absent), `a reader's page carries ${absent}`);
@@ -491,9 +491,9 @@ describe("a panel says what it holds in one line, under its title", () => {
     assert.doesNotMatch(view, /the ordering the claim queries use/);
     // Named on the Operations tab at most, which only an operator is sent - never to a reader,
     // who is told nothing of a tier they are not in.
-    assert.ok((read('views/dashboard/ops.ejs').match(/DASHBOARD_ALLOWED_LOGINS/g) ?? []).length <= 1,
+    assert.ok((read('views/dashboard/ops.ejs').match(/DASHBOARD_OPERATOR_IDS/g) ?? []).length <= 1,
       'the tier is explained once, where an operator meets it first');
-    assert.equal((view.replace(read('views/dashboard/ops.ejs'), '').match(/DASHBOARD_ALLOWED_LOGINS/g) ?? []).length, 0,
+    assert.equal((view.replace(read('views/dashboard/ops.ejs'), '').match(/DASHBOARD_OPERATOR_IDS/g) ?? []).length, 0,
       'and nowhere a reader is sent');
   });
 });

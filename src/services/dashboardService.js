@@ -13,7 +13,6 @@ import {
   revokeSession,
   authorizeUser,
   sessionUserId,
-  isOperator,
 } from "./dashboardAuth.js";
 import { getLogger, format, fields } from "../utils/logger.js";
 import { ALLOWED_EMAIL_DOMAINS, OWN_GITHUB_ORGS, PERCENTILE_MIN_SAMPLE } from "../utils/constants.js";
@@ -73,11 +72,12 @@ export const readerSnapshot = (viewer) => ({
  * must never receive what it is not allowed to draw. A reader's costs nothing; an operator's
  * carries the Operations tab under `ops`.
  * @param {string} viewer - GitHub login reading the page
+ * @param {boolean} [operator] - req.isOperator, which requireDashboardAccess decided on the account id
  */
-export const getSnapshot = async (viewer) => {
+export const getSnapshot = async (viewer, operator = false) => {
   const base = readerSnapshot(viewer);
 
-  if (!isOperator(viewer)) {
+  if (!operator) {
     return base;
   }
 
@@ -162,7 +162,7 @@ export async function handleGetDashboard(req, res) {
   let snapshot;
 
   try {
-    snapshot = await getSnapshot(login);
+    snapshot = await getSnapshot(login, req.isOperator);
   } catch (error) {
     // Same answer as the sibling routes: a database blip on the first load would otherwise
     // reach the catch-all in src/index.js and read as an anonymous 500, at the moment an
@@ -206,7 +206,7 @@ export async function handleGetDashboardData(req, res) {
     // An instrument reading five seconds into the past is worse than no instrument, because
     // nothing on screen says which.
     res.set('Cache-Control', 'no-store');
-    res.json(await getSnapshot(req.dashboardLogin));
+    res.json(await getSnapshot(req.dashboardLogin, req.isOperator));
   } catch (error) {
     // Answered as data rather than a 500 page: the page stays up and shows that it lost the
     // database, which is the most useful thing it can display at that moment.

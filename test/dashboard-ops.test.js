@@ -68,7 +68,10 @@ describe("the enrollment address never leaves the operator tier", () => {
 
     assert.deepEqual(callers, ['src/services/dashboardService.js'],
       'the operational snapshot is read from somewhere that does not check the tier');
-    assert.match(snapshot, /if \(!isOperator\(viewer\)\) \{\s*return base;\s*\}[\s\S]*getOpsSnapshot\(/,
+    // The tier the gate decided on the account id, never one worked out again from a login.
+    assert.deepEqual(withoutComments(serviceSource).match(/getSnapshot\([^)]*\)/g).filter((call) => !call.startsWith('getSnapshot(viewer')),
+      ['getSnapshot(login, req.isOperator)', 'getSnapshot(req.dashboardLogin, req.isOperator)']);
+    assert.match(snapshot, /if \(!operator\) \{\s*return base;\s*\}[\s\S]*getOpsSnapshot\(/,
       'a reader must leave with the base before anything operational is read');
 
     // Every write is on the same tier, checked before anything else the handler does: their

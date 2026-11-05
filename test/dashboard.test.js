@@ -11,7 +11,7 @@ import { reportOf } from "../test-support/fixtures/collective.js";
 // dashboardAuth reads its configuration at import time, exactly as it does in the running
 // app, so the environment has to be in place before the dynamic import below.
 process.env.SESSION_SECRET = "0".repeat(64);
-process.env.DASHBOARD_ALLOWED_LOGINS = "operator-one, Operator-Two";
+process.env.DASHBOARD_OPERATOR_IDS = "583231, 9919";
 // What the footnote states, read by src/utils/constants.js at import like the rest.
 process.env.OWN_GITHUB_ORGS = "acme, acme-labs";
 process.env.ALLOWED_EMAIL_DOMAINS = "acme.com";
@@ -255,10 +255,10 @@ describe("the authorization rule", () => {
     assert.doesNotMatch(body, /isOperator/, 'the operator tier must not decide who may read the page');
   });
 
-  test("the operator list is case-insensitive, because GitHub logins are", () => {
-    assert.equal(auth.isOperator('OPERATOR-ONE'), true);
-    assert.equal(auth.isOperator('operator-two'), true);
-    assert.equal(auth.isOperator('somebody-else'), false);
+  test("the operator list holds account ids, spaces and all", () => {
+    assert.equal(auth.isOperator(583231), true);
+    assert.equal(auth.isOperator(9919), true);
+    assert.equal(auth.isOperator(424242), false);
     assert.equal(auth.isOperator(undefined), false);
   });
 
@@ -268,18 +268,18 @@ describe("the authorization rule", () => {
     // built once, at import, and this module was imported with the list in place.
     const source = read('src/services/dashboardAuth.js');
 
-    assert.match(source, /operatorLogins\.has\(/, 'membership is the whole test');
-    assert.doesNotMatch(source, /operatorLogins\.size === 0/, 'an empty list must not mean "everyone"');
+    assert.match(source, /operatorIds\.has\(/, 'membership is the whole test');
+    assert.doesNotMatch(source, /operatorIds\.size === 0/, 'an empty list must not mean "everyone"');
   });
 
-  test("the operator tier is read against the stored login, never one the browser holds", () => {
-    // The session carries an account id and nothing else; the login the tier is matched on is
-    // the one the database answered for that id, which reconcile keeps current across a rename.
+  test("the operator tier is matched on the session's account id, never on a login", () => {
+    // A login is released when its owner renames, and whoever registers it next would inherit
+    // the tier with it. The behaviour is pinned over HTTP in test/operator-tier.test.js.
     const source = withoutComments(read('src/services/dashboardAuth.js'));
     const gate = source.slice(source.indexOf('export const requireDashboardAccess'));
 
     assert.match(gate, /const \{ allowed, reason, login \} = await authorizeUser\(userId\);/);
-    assert.match(gate, /req\.isOperator = isOperator\(login\);/);
+    assert.match(gate, /req\.isOperator = isOperator\(userId\);/);
   });
 
   test("a missing account id is refused without a lookup", async () => {
@@ -604,7 +604,7 @@ describe("how the figures are computed", () => {
   test("and nothing of the machine, since every reader is sent it", async () => {
     const text = footnoteIn(await renderPage(operatorSnapshotOf()));
 
-    for (const absent of ['Operations', 'operator', 'DASHBOARD_ALLOWED_LOGINS']) {
+    for (const absent of ['Operations', 'operator', 'DASHBOARD_OPERATOR_IDS']) {
       assert.ok(!text.includes(absent), `the footnote mentions ${absent}`);
     }
   });

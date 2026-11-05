@@ -168,7 +168,7 @@ const erroring = async (failure) => {
   const logged = [];
   const record = (level) => (fields, message) => logged.push({ level, fields, message });
   const express = Express();
-  const context = vm.createContext({ express, Express, logger: { warn: record('warn'), error: record('error') } });
+  const context = vm.createContext({ express, Express, STATUS_CODES: http.STATUS_CODES, logger: { warn: record('warn'), error: record('error') } });
   const jsonBody = vm.runInContext(`${region('const jsonBody', 'express.get("/dashboard/manual"')}\n;jsonBody`, context);
 
   express.post('/dashboard/manual', jsonBody, (req, res) => {
@@ -478,7 +478,8 @@ describe("the last-resort error handler", () => {
       const response = await post(server, '/dashboard/manual', body, headers);
 
       assert.equal(response.status, status);
-      assert.equal(typeof JSON.parse(response.body).error, 'string', 'a small JSON error, as the page reads one');
+      assert.equal(JSON.parse(response.body).error, http.STATUS_CODES[status], 'a small JSON error, as the page reads one');
+      assert.doesNotMatch(response.body, /oops|xxxx/, 'the client\'s body was echoed back');
     }
 
     assert.deepEqual(logged.map(({ level }) => level), ['warn', 'warn', 'warn'], 'a refused body needs no human');

@@ -1,6 +1,7 @@
 import Express from "express";
 import { fileURLToPath } from "node:url";
 import { isIP } from "node:net";
+import { STATUS_CODES } from "node:http";
 import { createNodeMiddleware, createProbot } from "probot";
 import app from "./app.js";
 import { getLogger, format } from "./utils/logger.js";
@@ -500,30 +501,35 @@ express.use((req, res) => {
 //
 // Except a request refused for what the client sent - body-parser's 400 for JSON that does not
 // parse, 413 past the 16kb limit, 415 for a compressed body, or send's 412 and 416 for a
-// dashboard asset's conditional or range request - which is answered with its own status. `expose` is how http-errors marks one: an Octokit error carries a `status` too, but that
-// is GitHub's answer to us, and a 500 the operator has to see. A warn, not an error: nothing here
-// needs a human. And logged without the error: its `body` is the client's raw text, and
-// JSON.parse quotes that text in its message.
+// dashboard asset's conditional or range request - which is answered with its own status.
+// `expose` is how http-errors marks one: an Octokit error carries a `status` too, but that is
+// GitHub's answer to us, and a 500 the operator has to see. A warn, not an error: nothing here
+// needs a human. Neither the log nor the answer carries the error's message or the error
+// itself: its `body` is the client's raw text, and JSON.parse quotes that text in its message.
 // eslint-disable-next-line no-unused-vars
 express.use((error, req, res, next) => {
-  if (error.expose && error.status >= 400 && error.status < 500) {
+  const refused = error.expose && error.status >= 400 && error.status < 500;
+
+  if (refused) {
     logger.warn(
       { method: req.method, url: req.path, status: error.status, type: error.type },
       `${req.method} ${req.path} refused (${error.type ?? 'client error'}) - answering ${error.status}`
     );
-
-    res.status(error.status).json({ error: error.message });
-    return;
+  } else {
+    logger.error(
+      { err: error, method: req.method, url: req.path },
+      `unhandled error on ${req.method} ${req.path}: ${error.message}`
+    );
   }
-
-  logger.error(
-    { err: error, method: req.method, url: req.path },
-    `unhandled error on ${req.method} ${req.path}: ${error.message}`
-  );
 
   // A render that failed halfway has already flushed a status and part of a body; there
   // is nothing left to say.
   if (res.headersSent) {
+    return;
+  }
+
+  if (refused) {
+    res.status(error.status).json({ error: STATUS_CODES[error.status] });
     return;
   }
 

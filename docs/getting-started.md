@@ -89,7 +89,7 @@ Then, below it, uncomment and set:
 | --- | --- |
 | `WEBHOOK_PROXY_URL` | your smee channel |
 | `SESSION_SECRET` | `openssl rand -hex 32`. Turns the dashboard on |
-| `DASHBOARD_ALLOWED_LOGINS` | your GitHub login. Adds the Operations tab for you |
+| `DASHBOARD_OPERATOR_IDS` | your GitHub account id, from `gh api users/<your-login> --jq .id`. Adds the Operations tab for you |
 | `DB_PORT` | only if you moved the port in step 2. Otherwise the app connects to whatever listens on 5432 |
 
 Every variable is described in [docs/configuration.md](./configuration.md).

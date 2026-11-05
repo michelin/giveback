@@ -43,7 +43,7 @@ own enrollment is refused.
 | `DB_NAME` | `postgres` | Database name |
 | `DB_PORT` | `5432` | PostgreSQL port. Locally, match `POSTGRES_HOST_PORT` if you moved the compose port |
 | `DB_SSL` | `true` in production, `false` otherwise | TLS on the database connection. Only the exact value `true` turns it on. In production any other value is refused at startup unless `DB_HOST` stays on the machine: `localhost`, `127.x`, `::1` or a Unix socket path |
-| `NODE_ENV` | `development` | `development` or `production`. Drives the cron defaults, `DB_SSL`, `LOG_FORMAT`, the `Secure` cookie and whether `DB_PASSWORD` is required. Many platforms do **not** set it for you |
+| `NODE_ENV` | `development` | `development` or `production`. Any other value, `prod` included, runs as development and says so at `warn` at boot. Drives the cron defaults, `DB_SSL`, `LOG_FORMAT`, the `Secure` cookie, HSTS, `trust proxy` and whether `DB_PASSWORD` is required. Many platforms do **not** set it for you |
 | `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` \| `fatal`. An unknown value falls back to `info`. Applies to Probot's own lines too. See [logging.md](./logging.md) |
 | `LOG_FORMAT` | `json` in production, `pretty` otherwise | `json` emits one indexable line per event; `pretty` is for a human at a terminal |
 | `GITHUB_APP_PUBLIC_URL` | derived from `GET /app` | Install URL behind the button on the enrollment page. Leave it unset and it follows the loaded credentials; set it only for a vanity or proxied URL |
@@ -76,12 +76,12 @@ In production both settings point at the same public origin.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SESSION_SECRET` | _(none)_ | Signing key for the dashboard session. **The `/dashboard` routes are not registered at all while it is unset.** At least 32 characters, or the boot fails: `openssl rand -hex 32` |
-| `DASHBOARD_ALLOWED_LOGINS` | _(none)_ | Comma-separated GitHub logins that get the **operator tier**, the Operations tab. It does not decide who may read the page. Matched against the login stored on the operator's enrolled row, which follows a GitHub rename at the next reconciliation: an operator who renames must be renamed here too, and the change takes effect on restart |
+| `DASHBOARD_OPERATOR_IDS` | _(none)_ | Comma-separated GitHub **account ids** that get the **operator tier**, the Operations tab: `gh api users/<login> --jq .id` gives one. It does not decide who may read the page. Ids, not logins: a login is released when its owner renames, and whoever registers it next would inherit the tier. A rename keeps the tier. An entry that is not an id fails the boot. Read at start: a change takes effect on restart |
 | `OWN_GITHUB_ORGS` | _(none)_ | Comma-separated GitHub **owners** the company owns, e.g. `acme,acme-labs`. Report-time only: it splits figures between ours and elsewhere ([where](./dashboard.md#overall)) and never narrows what is collected. Empty means every contribution counts as external |
 | `JOB_RUN_RETENTION_DAYS` | `7` | Days of run history kept in `job_runs`, purged by the reconciliation job |
 | `GITLAB_API_HOSTS` | `gitlab.com` | Comma-separated GitLab hosts the **manual entry** form may read a merge request from, without a token, so only public projects are found. An address on another host is still recordable, typed in by hand. An allow-list because the address comes from a human, and calling any host it names would let the form make the server fetch on somebody's behalf |
 
-Every enrolled user can read the page; `DASHBOARD_ALLOWED_LOGINS` only adds the Operations tab:
+Every enrolled user can read the page; `DASHBOARD_OPERATOR_IDS` only adds the Operations tab:
 the jobs, the queue, enrollment addresses, account states, failure causes and the page's buttons.
 Unset means **nobody** is an operator, so a setting that fails to arrive hides operational detail
 rather than publishing addresses. Read [dashboard.md](./dashboard.md#two-tiers) before enabling

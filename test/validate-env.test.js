@@ -43,7 +43,7 @@ const KEYS = [
   'OCTOKIT_HTTP_PROXY',
   'WEBHOOK_PROXY_URL',
   'SESSION_SECRET',
-  'DASHBOARD_ALLOWED_LOGINS',
+  'DASHBOARD_OPERATOR_IDS',
   'JOB_RUN_RETENTION_DAYS',
 ];
 
@@ -115,6 +115,18 @@ describe("validateEnv refuses to boot", () => {
     assert.throws(() => validateEnv(), /contains invalid domains: -bad-\.com/);
   });
 
+  test("when DASHBOARD_OPERATOR_IDS holds a login rather than an account id", () => {
+    // A login would match no session: its owner silently gets no Operations tab.
+    complete();
+    process.env.DASHBOARD_OPERATOR_IDS = '583231, octocat, 0';
+
+    assert.throws(() => validateEnv(), /not GitHub account ids: octocat, 0 - find an id with: gh api users/);
+
+    process.env.DASHBOARD_OPERATOR_IDS = ' 583231 , 9919 ';
+
+    assert.doesNotThrow(() => validateEnv());
+  });
+
   test("when SESSION_SECRET is present but too weak to sign a session", () => {
     complete();
     process.env.SESSION_SECRET = 'short';
@@ -179,5 +191,45 @@ describe("validateEnv accepts", () => {
     complete();
 
     assert.doesNotThrow(() => validateEnv());
+  });
+});
+
+describe("validateEnv warns at boot", () => {
+  /**
+   * The lines a boot logs at warn, from a child process: the logger here was loaded silent, and a
+   * pino instance writes to stdout through a transform no test can tap in-process.
+   * @param {Object<string, string>} env - Added to a complete, valid environment
+   * @returns {Promise<string[]>} The warn messages
+   */
+  const warningsFor = async (env) => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const module = new URL("../src/utils/validateEnv.js", import.meta.url).href;
+
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      ["--input-type=module", "-e", `(await import(${JSON.stringify(module)})).validateEnv();`],
+      {
+        env: {
+          PATH: process.env.PATH, LOG_LEVEL: 'warn', LOG_FORMAT: 'json',
+          APP_ID: '123456', PRIVATE_KEY: '-----BEGIN RSA PRIVATE KEY-----', WEBHOOK_SECRET: 'webhook-secret',
+          GITHUB_CLIENT_ID: 'Iv1.0123456789abcdef', GITHUB_CLIENT_SECRET: 'client-secret',
+          DB_HOST: 'localhost', DB_USER: 'postgres', DB_PASSWORD: 'secret', ALLOWED_EMAIL_DOMAINS: 'michelin.com',
+          ...env,
+        },
+      }
+    );
+
+    return stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line).msg);
+  };
+
+  test("when NODE_ENV is a spelling of production that does not turn it on", async () => {
+    const [warning] = await warningsFor({ NODE_ENV: 'prod' });
+
+    assert.match(warning ?? '', /^unknown NODE_ENV=prod, neither development nor production - running as development: no database TLS/);
+  });
+
+  test("and says nothing when NODE_ENV is right", async () => {
+    assert.deepEqual(await warningsFor({ NODE_ENV: 'production', DASHBOARD_OPERATOR_IDS: '583231' }), []);
   });
 });

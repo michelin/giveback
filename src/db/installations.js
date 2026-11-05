@@ -439,8 +439,8 @@ export const isEnrolledUser = async (login) => {
  * The dashboard's check, on the numeric id rather than on the login: a login is released when
  * its owner renames, and whoever claims it next would otherwise inherit the session's access.
  * The id never moves. Same rule as isEnrolledUser() above. The login returned is the stored
- * one, which reconcile_installations keeps current across a rename, so it is the one the
- * operator list and the rest of the dashboard are read against.
+ * one, which reconcile_installations keeps current across a rename, so it is the one the rest
+ * of the dashboard reads. The operator tier is matched on the id itself.
  * @returns {Promise<{enrolled: boolean, known: boolean, login: ?string}>}
  */
 export const enrollmentByUserId = async (userId) => {

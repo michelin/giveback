@@ -1315,7 +1315,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
     test("enrollmentByUserId answers on the account id, with the login stored on its row", async () => {
       // The dashboard's check. On the id, because a login another account claims after a rename
       // must not inherit the access; the login it answers with is the row's, which is what the
-      // operator list is matched against.
+      // Me tab reads. The operator tier is matched on the id, not on this login.
       await enrol('octocat', { userId: 583231 });
 
       assert.deepEqual(await db.installations.enrollmentByUserId(583231), { enrolled: true, known: true, login: 'octocat' });

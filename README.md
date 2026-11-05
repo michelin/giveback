@@ -138,8 +138,9 @@ These changes are cosmetic and none of them changes behaviour:
 - `package.json`: `name`, `description`.
 - `views/enroll.ejs` (page `<title>` and footer link) and `views/dashboard.ejs` (`<title>`).
 
-What counts as *your* repositories and who may enroll are settings, not code: `OWN_GITHUB_ORGS`
-and `ALLOWED_EMAIL_DOMAINS` in [docs/configuration.md](docs/configuration.md).
+What counts as *your* repositories, who may enroll and who sees the operations console are
+settings, not code: `OWN_GITHUB_ORGS`, `ALLOWED_EMAIL_DOMAINS` and `DASHBOARD_OPERATOR_IDS` (GitHub
+account ids) in [docs/configuration.md](docs/configuration.md).
 
 ## Documentation
 

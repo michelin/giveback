@@ -47,8 +47,10 @@ Operations tab, and that tab is the operator's.
 
 For a reader the tab is **absent, not hidden**: the template is not rendered, the snapshot has no
 `ops` key, the tab's script and stylesheet answer `404`, and every route behind it answers `404`
-before reading anything. Unset means **nobody** is an operator: a setting that fails to arrive
-degrades the page for a handful of people instead of publishing addresses to everyone.
+before reading anything but a JSON body, which is parsed first: one that does not parse, is over
+16 kb or is compressed gets its `400`, `413` or `415` instead. Unset means **nobody** is an
+operator: a setting that fails to arrive degrades the page for a handful of people instead of
+publishing addresses to everyone.
 
 The decision is made **once, on the server**, in `getSnapshot()`. A reader's snapshot is built by
 **picking** fields (`readerSnapshot()`), so a field added to the operational half later is

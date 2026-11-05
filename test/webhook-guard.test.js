@@ -20,8 +20,7 @@ const guarded = () => new Promise((resolve) => {
   const received = [];
   const express = Express();
 
-  express.post(WEBHOOK_PATH, guardWebhooks);
-  express.use((req, res) => {
+  express.post(WEBHOOK_PATH, guardWebhooks, (req, res) => {
     received.push({ body: req.body, rawBody: req.rawBody });
     res.status(200).send('ok\n');
   });
@@ -103,7 +102,7 @@ describe("the webhook endpoint, before Probot reads it", () => {
     assert.deepEqual(received, [], 'an unsigned body reached the library that logs it');
   });
 
-  test("a body declared above GitHub's 25 MB is refused before a byte is read", async (t) => {
+  test("a body declared above the cap is refused before a byte is read", async (t) => {
     const { server, received } = await guarded();
 
     t.after(() => server.close());
@@ -138,6 +137,18 @@ describe("the webhook endpoint, before Probot reads it", () => {
     const status = await post(server, { streamed: WEBHOOK_BODY_LIMIT + 1024 * 1024 });
 
     assert.equal(status, 413);
+    assert.deepEqual(received, []);
+  });
+
+  test("the cap is sized for an installation event, not for GitHub's 25 MB", async (t) => {
+    // 25 MB per anonymous request, buffered before the signature is checked, for deliveries
+    // that cost a few hundred bytes per repository they list. 2 MiB is past what one needs -
+    // see the reasoning at WEBHOOK_BODY_LIMIT - so it must not be read to the end.
+    const { server, received } = await guarded();
+
+    t.after(() => server.close());
+
+    assert.equal(await post(server, { streamed: 2 * 1024 * 1024 }), 413);
     assert.deepEqual(received, []);
   });
 });

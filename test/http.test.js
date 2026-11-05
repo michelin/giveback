@@ -5,13 +5,19 @@ import { fileURLToPath } from "node:url";
 import { isIP } from "node:net";
 import http from "node:http";
 import vm from "node:vm";
+import { createHmac } from "node:crypto";
 import Express from "express";
+
+// Read by src/services/webhookGuard.js at import time, as the running app reads it.
+process.env.WEBHOOK_SECRET = "a-webhook-secret";
+// The webhook guard's refusals log a warn.
+process.env.LOG_LEVEL = "silent";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /**
- * The two pieces of middleware src/index.js declares inline: the /callback throttle and the
- * /dashboard security headers.
+ * The middleware src/index.js declares inline: the /callback throttle, the page security headers,
+ * the webhook mount and the last-resort error handler.
  *
  * Importing src/index.js is not an option - it opens a port, starts Bree and connects to
  * PostgreSQL at module scope - and asserting on its source text would only pin the shape of the
@@ -103,6 +109,109 @@ const headered = async ({ isProduction = false } = {}) => {
 
   return listening(express);
 };
+
+/**
+ * A listening app carrying the real webhook mount - the guard, and Probot behind it - with a
+ * Probot app that records the deliveries it handles
+ *
+ * The real Probot, not a stand-in: what is under test is where Probot matches a path, and only
+ * @octokit/webhooks' own matching shows whether a path the guard does not route can still reach
+ * it. `reached` records every request Probot's middleware was handed, whatever it did with it.
+ * @returns {Promise<{server: import('node:http').Server, reached: string[], handled: string[]}>}
+ */
+const webhooked = async () => {
+  const { WEBHOOK_PATH, guardWebhooks } = await import('../src/services/webhookGuard.js');
+  const { getLogger } = await import('../src/utils/logger.js');
+  const { createNodeMiddleware, Probot } = await import('probot');
+
+  const reached = [];
+  const handled = [];
+  const express = Express();
+
+  const context = vm.createContext({
+    express,
+    WEBHOOK_PATH,
+    guardWebhooks,
+    getLogger,
+    app: (probot) => probot.on('installation.created', (event) => { handled.push(event.id); }),
+    // No delivery here names an installation, so nothing ever authenticates with this key.
+    createProbot: ({ overrides }) => new Probot({ appId: 1, privateKey: 'unused', secret: process.env.WEBHOOK_SECRET, ...overrides }),
+    createNodeMiddleware: async (...args) => {
+      const middleware = await createNodeMiddleware(...args);
+
+      return (req, res, next) => {
+        reached.push(req.url);
+        return middleware(req, res, next);
+      };
+    },
+  });
+
+  // The region awaits Probot's middleware, as src/index.js does at module scope; a vm script
+  // only allows that inside an async function.
+  await vm.runInContext(
+    `(async () => {\n${region('// Capped and signature-checked before Probot', '// --- security headers for the two pages')}\n})()`,
+    context,
+    { filename: 'index-webhooks.js' }
+  );
+  express.use((req, res) => res.status(404).send('Not found.'));
+
+  return { server: await listening(express), reached, handled };
+};
+
+/**
+ * A listening app carrying the real JSON parser of the manual-entry routes and the real
+ * last-resort error handler, around a route that either accepts its body or throws `failure`
+ * @param {Error} [failure] - What the route throws once its body is parsed
+ * @returns {Promise<{server: import('node:http').Server, logged: Array<{level: string, fields: Object, message: string}>}>}
+ */
+const erroring = async (failure) => {
+  const logged = [];
+  const record = (level) => (fields, message) => logged.push({ level, fields, message });
+  const express = Express();
+  const context = vm.createContext({ express, Express, logger: { warn: record('warn'), error: record('error') } });
+  const jsonBody = vm.runInContext(`${region('const jsonBody', 'express.get("/dashboard/manual"')}\n;jsonBody`, context);
+
+  express.post('/dashboard/manual', jsonBody, (req, res) => {
+    if (failure) {
+      throw failure;
+    }
+
+    res.json({ received: req.body });
+  });
+  vm.runInContext(region('// Last resort.', 'const PORT ='), context, { filename: 'index-last-resort.js' });
+
+  return { server: await listening(express), logged };
+};
+
+/**
+ * One POST with a body, whatever the server does with it
+ * @param {import('node:http').Server} server
+ * @param {string} path
+ * @param {string|Buffer} body
+ * @param {Object} [headers]
+ * @returns {Promise<{status: number, body: string}>}
+ */
+const post = (server, path, body, headers = {}) => new Promise((resolve, reject) => {
+  const request = http.request(
+    {
+      host: '127.0.0.1',
+      port: server.address().port,
+      path,
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), ...headers },
+    },
+    (response) => {
+      let text = '';
+
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { text += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body: text }));
+    }
+  );
+
+  request.on('error', reject);
+  request.end(body);
+});
 
 /** @returns {Promise<import('node:http').Server>} An app bound to an ephemeral loopback port */
 const listening = (express) => new Promise((resolve) => {
@@ -239,7 +348,7 @@ describe("the security headers on the two pages this app renders", () => {
     assert.ok(enroll, '/enroll renders a page and must carry a policy');
     assert.notEqual(dashboard, enroll, 'one shared policy would be the union of the two, which over-permits the public page');
     // /, /ping and the 404 answer with one sentence and no markup. A policy there would be
-    // inert, and mounting one app-wide would also cover the probot middleware's own routes.
+    // inert: one this strict is checked against the two pages only.
     assert.equal((await get(server, '/ping')).headers['content-security-policy'], undefined);
     for (const policy of [dashboard, enroll]) {
       assert.ok(!policy.includes('cdn.jsdelivr.net') && !policy.includes('cdnjs.cloudflare.com'), 'no page in this app loads a CDN any more - neither policy may re-admit one');
@@ -314,5 +423,88 @@ describe("the headers on every response", () => {
     // does not serve.
     assert.equal((await get(development, '/ping')).headers['strict-transport-security'], undefined);
     assert.equal((await get(production, '/ping')).headers['strict-transport-security'], 'max-age=31536000');
+  });
+});
+
+describe("the webhook endpoint", () => {
+  // What GitHub sends: a signed installation.created.
+  const body = '{"action":"created"}';
+  const headers = {
+    'x-github-event': 'installation',
+    'x-github-delivery': 'd-1',
+    'x-hub-signature-256': `sha256=${createHmac('sha256', process.env.WEBHOOK_SECRET).update(body).digest('hex')}`,
+  };
+
+  test("a genuine delivery passes the guard and is handled by Probot", async (t) => {
+    // Probot mounted on a route sees req.url unchanged, and the body in the form the guard hands
+    // over. A slip in either and Probot passes the delivery on, or waits on a spent stream.
+    const { server, handled } = await webhooked();
+
+    t.after(() => server.close());
+
+    assert.equal((await post(server, '/api/github/webhooks', body, headers)).status, 200);
+    assert.deepEqual(handled, ['d-1']);
+  });
+
+  test("a path the guard does not route never reaches Probot", async (t) => {
+    // @octokit/webhooks resolves dot segments and strips every trailing slash, and Express does
+    // neither: mounted app-wide, Probot also handled these four spellings, which the guard's
+    // route does not match. On the guard's route only, they are the app's 404.
+    const { server, reached, handled } = await webhooked();
+
+    t.after(() => server.close());
+
+    for (const path of ['/api/github/webhooks//', '/api/github/./webhooks', '/api/github/x/../webhooks', '/api/github/%2e/webhooks']) {
+      assert.equal((await post(server, path, body, headers)).status, 404, path);
+    }
+
+    assert.deepEqual(reached, [], 'Probot was handed a request the guard never saw');
+    assert.deepEqual(handled, []);
+  });
+});
+
+describe("the last-resort error handler", () => {
+  test("a body the dashboard JSON parser refuses is answered with its own status", async (t) => {
+    // 400, 413 and 415 are what body-parser decided; the handler used to answer all three 500.
+    const { server, logged } = await erroring();
+
+    t.after(() => server.close());
+
+    for (const [status, body, headers] of [
+      [400, '{"title": oops}', {}],
+      [413, JSON.stringify({ title: 'x'.repeat(20 * 1024) }), {}],
+      [415, '{}', { 'content-encoding': 'gzip' }],
+    ]) {
+      const response = await post(server, '/dashboard/manual', body, headers);
+
+      assert.equal(response.status, status);
+      assert.equal(typeof JSON.parse(response.body).error, 'string', 'a small JSON error, as the page reads one');
+    }
+
+    assert.deepEqual(logged.map(({ level }) => level), ['warn', 'warn', 'warn'], 'a refused body needs no human');
+    // body-parser attaches the raw text as err.body, and JSON.parse quotes it in its message.
+    assert.doesNotMatch(JSON.stringify(logged), /oops|xxxx/, 'the client\'s body reached the log');
+  });
+
+  test("a failure of ours is still a 500 logged at error, even one carrying a status", async (t) => {
+    // An Octokit RequestError carries GitHub's status: a 404 from GitHub is not the client's.
+    const failure = Object.assign(new Error('Not Found'), { status: 404 });
+    const { server, logged } = await erroring(failure);
+
+    t.after(() => server.close());
+
+    assert.equal((await post(server, '/dashboard/manual', '{}')).status, 500);
+    assert.deepEqual(logged.map(({ level }) => level), ['error']);
+  });
+});
+
+describe("a request has a bounded time to arrive", () => {
+  test("30 s rather than Node's 300, so a trickled webhook body cannot hold memory for minutes", () => {
+    // Pinned at the source: the server is created by express.listen() at the end of index.js,
+    // which no test here starts, and a real 408 takes Node's 30 s check interval to observe.
+    const [, timeout] = source.match(/^server\.requestTimeout = ([\d_]+);$/m) ?? [];
+
+    assert.ok(timeout, 'server.requestTimeout is no longer set on the listening server');
+    assert.ok(Number(timeout.replaceAll('_', '')) <= 30_000, `requestTimeout is ${timeout} ms`);
   });
 });

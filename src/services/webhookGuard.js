@@ -10,7 +10,8 @@ const logger = getLogger("webhookGuard");
  * The endpoint is the one route any anonymous caller can POST to, and @octokit/webhooks reads
  * the whole body into memory, with no cap, before it checks the signature - and on a mismatch
  * hands that body to every error handler, which logged it. Here the body is capped and the
- * signature checked first, so Probot only ever sees a delivery that came from GitHub.
+ * signature checked first, so Probot only ever sees a delivery that came from GitHub. That holds
+ * because src/index.js mounts Probot on this route, behind the guard, and nowhere else.
  *
  * Probot still verifies again. That costs one HMAC, and it keeps this module a filter in front
  * of the library rather than a replacement for its check.
@@ -18,8 +19,16 @@ const logger = getLogger("webhookGuard");
 
 export const WEBHOOK_PATH = '/api/github/webhooks';
 
-// GitHub's own cap: a delivery above 25 MB is never sent, so nothing larger can be genuine.
-export const WEBHOOK_BODY_LIMIT = 25 * 1024 * 1024;
+// Sized for the deliveries this app receives, not for GitHub's 25 MB cap: every anonymous caller
+// gets this much buffered before the signature is checked. Only installation events are handled
+// (src/app.js), and the few GitHub sends every App regardless are no larger. Their one variable
+// part is the `repositories` array, about 350 bytes an entry at worst. With no repository
+// permission the array is probably empty, but no source confirms it, so 1 MiB is sized as if it
+// listed every repository of a personal account: about 3,000 at worst, 7,600 typical. Above
+// that a delivery answers 413 and GitHub does not retry it, and nothing is lost: the OAuth
+// callback writes the enrolled row itself, and reconcile_installations repairs a missed suspend,
+// unsuspend or delete at its next run (hourly in production).
+export const WEBHOOK_BODY_LIMIT = 1024 * 1024;
 
 const secret = process.env.WEBHOOK_SECRET ?? '';
 
@@ -47,9 +56,9 @@ const refuse = (res, status) => {
  * send. A chunked body declares nothing, and body-parser stops buffering it the moment it
  * crosses the cap.
  *
- * Answered here rather than passed on, since the catch-all would turn the error into a 500 and
- * log a stack for what is a refused request. Not logged: the request line at debug already
- * records the status, and a flood is exactly when a line per refusal would hurt.
+ * Answered here rather than passed on: the catch-all would answer the same status, but without
+ * Connection: close and with a warn line. Not logged: the request line at debug already records
+ * the status, and a flood is exactly when a line per refusal would hurt.
  */
 const capBody = (req, res, next) => {
   if (Number(req.get('content-length')) > WEBHOOK_BODY_LIMIT) {

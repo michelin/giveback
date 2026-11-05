@@ -222,6 +222,20 @@ Either somebody is probing the URL, or `WEBHOOK_SECRET` differs from the App's: 
 finds it on the App's *Advanced* page. A body refused for its size is not logged; the request line
 at `debug` records the `413`.
 
+**The last-resort Express error handler** (end of `src/index.js`) writes one `error` line, with
+the stack, for a failure nobody else handled, and answers `500`. A request refused for what the
+client sent is not such a failure: a 4xx `http-errors` marks `expose` (JSON the dashboard's parser
+cannot parse, `400`; a body over 16 kb, `413`; a compressed one, `415`; an asset's failed
+precondition or unsatisfiable range, `412` or `416`) is answered with that status and a small JSON
+error, and logged as one `warn` line naming the status and body-parser's error type, if any.
+`expose` is what tells it from an Octokit error, whose `status` is GitHub's and stays a `500`.
+Never the error itself: body-parser attaches the raw body to it, and `JSON.parse` quotes that body
+in its message.
+
+```
+WARN (index): POST /dashboard/manual refused (entity.parse.failed) - answering 400
+```
+
 ## Two things not to regress
 
 - **`process.exit()` truncates pino's async transport.** Set `process.exitCode` and let the loop

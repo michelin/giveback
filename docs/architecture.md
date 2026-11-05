@@ -382,7 +382,7 @@ downstream consumers), the two event ledgers, the repository registry and its re
 
 | Route | Purpose |
 | --- | --- |
-| `POST /api/github/webhooks` | Webhook receiver. Bodies over 25 MB (GitHub's own cap) answer `413`. The signature is checked against `WEBHOOK_SECRET` before Probot reads the delivery: a mismatch answers `400` with one `warn` line. Probot verifies again |
+| `POST /api/github/webhooks` | Webhook receiver. Bodies over 1 MiB answer `413`, and a request still arriving after 30 s is cut within 60 s (`server.requestTimeout`, on every route and checked every 30 s, Node's default being 300 s): sized for installation events, far below GitHub's 25 MB cap, since every anonymous caller gets that much buffered (the reasoning is at `WEBHOOK_BODY_LIMIT` in `src/services/webhookGuard.js`). The signature is checked against `WEBHOOK_SECRET` before Probot reads the delivery: a mismatch answers `400` with one `warn` line. Probot verifies again. Probot is mounted on this exact route, behind that check, and nowhere else: a spelling Express does not route here, such as a doubled trailing slash or a `.` segment, answers `404` without reaching Probot |
 | `GET /` | Answers `🤖`, so a load balancer's root probe has something to hit |
 | `GET /callback` | OAuth callback: performs the enrollment, then redirects |
 | `GET /enroll` | Renders the enrollment outcome (`?reason=`). Side-effect free, refreshable |

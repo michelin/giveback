@@ -1,6 +1,7 @@
 import Express from "express";
 import { fileURLToPath } from "node:url";
 import { isIP } from "node:net";
+import { STATUS_CODES } from "node:http";
 import { createNodeMiddleware, createProbot } from "probot";
 import app from "./app.js";
 import { getLogger, format } from "./utils/logger.js";
@@ -195,12 +196,19 @@ express.use((req, res, next) => {
 });
 
 // Capped and signature-checked before Probot reads a byte - see src/services/webhookGuard.js.
-express.post(WEBHOOK_PATH, guardWebhooks);
-
+//
+// Probot is mounted on the guard's own route, behind it, and nowhere else. Mounted app-wide it
+// matched the path itself, and @octokit/webhooks resolves `.` and `..` segments and strips every
+// trailing slash where Express does neither: /api/github/webhooks// or /api/github/./webhooks
+// missed the guard and still reached Probot, which buffers the whole body, uncapped, before it
+// checks the signature. Now a path Express does not route here gets the 404 below. A route, not
+// express.use(WEBHOOK_PATH, ...): use strips its mount path from req.url, and Probot compares
+// req.url with webhooksPath.
+//
 // Our logger rather than the one Probot builds for itself: Probot and @octokit/webhooks log an
 // error with the whole delivery attached, and only ours has the serializer that strips it.
-// webhooksPath named, so the guard above and Probot can never disagree on the path.
-express.use(await createNodeMiddleware(app, {
+// webhooksPath named, so the guard and Probot can never disagree on the path.
+express.post(WEBHOOK_PATH, guardWebhooks, await createNodeMiddleware(app, {
   probot: createProbot({ overrides: { log: getLogger("probot") } }),
   webhooksPath: WEBHOOK_PATH,
 }));
@@ -235,8 +243,8 @@ const setPageSecurityHeaders = (res) => {
 // those strings stay literals in src/utils/enrollmentPages.js. This is the net under that.
 //
 // Mounted on /enroll rather than app-wide: the only other HTML this app returns is a
-// one-sentence body from /, /ping and the 404, and the probot middleware serves routes of its
-// own that no one here has checked against a policy this strict.
+// one-sentence body from /, /ping and the 404, and a policy this strict is checked against
+// this page only.
 express.use('/enroll', (req, res, next) => {
   res.set(
     'Content-Security-Policy',
@@ -390,7 +398,9 @@ if (isDashboardEnabled()) {
   // inflate off because the page's fetch() never compresses a body, and decoding one is what put
   // these routes in reach of CVE-2026-111497 (Node2Shell), a Brotli decoder bug any enrolled
   // reader could trigger: the operator check runs in the handler, after the body is parsed. Off,
-  // body-parser answers 415 before zlib sees a byte, whatever runtime the host picks.
+  // body-parser refuses the body with a 415 before zlib sees a byte, whatever runtime the host
+  // picks - answered as a 415 by the last-resort handler at the end of this file, like its 400
+  // and 413.
   const jsonBody = Express.json({ limit: '16kb', inflate: false });
 
   express.get("/dashboard/manual", requireDashboardAccess, handleGetManualContributions);
@@ -488,16 +498,38 @@ express.use((req, res) => {
 // Last resort. Outside production Express prints the stack trace of any handler error
 // straight into the response — absolute filesystem paths included — and logs nothing.
 // Here it is the other way round: the stack goes to the log, the user gets a sentence.
+//
+// Except a request refused for what the client sent - body-parser's 400 for JSON that does not
+// parse, 413 past the 16kb limit, 415 for a compressed body, or send's 412 and 416 for a
+// dashboard asset's conditional or range request - which is answered with its own status.
+// `expose` is how http-errors marks one: an Octokit error carries a `status` too, but that is
+// GitHub's answer to us, and a 500 the operator has to see. A warn, not an error: nothing here
+// needs a human. Neither the log nor the answer carries the error's message or the error
+// itself: its `body` is the client's raw text, and JSON.parse quotes that text in its message.
 // eslint-disable-next-line no-unused-vars
 express.use((error, req, res, next) => {
-  logger.error(
-    { err: error, method: req.method, url: req.path },
-    `unhandled error on ${req.method} ${req.path}: ${error.message}`
-  );
+  const refused = error.expose && error.status >= 400 && error.status < 500;
+
+  if (refused) {
+    logger.warn(
+      { method: req.method, url: req.path, status: error.status, type: error.type },
+      `${req.method} ${req.path} refused (${error.type ?? 'client error'}) - answering ${error.status}`
+    );
+  } else {
+    logger.error(
+      { err: error, method: req.method, url: req.path },
+      `unhandled error on ${req.method} ${req.path}: ${error.message}`
+    );
+  }
 
   // A render that failed halfway has already flushed a status and part of a body; there
   // is nothing left to say.
   if (res.headersSent) {
+    return;
+  }
+
+  if (refused) {
+    res.status(error.status).json({ error: STATUS_CODES[error.status] });
     return;
   }
 
@@ -512,6 +544,13 @@ const revision = process.env.APP_REVISION || 'unknown revision';
 const server = express.listen(PORT, HOST, () => {
   logger.info(`server listening on http://${HOST}:${PORT} - ${packageJson.name} v${packageJson.version} (${revision})`);
 });
+
+// How long a client has to finish SENDING its request, body included - not how long a handler
+// may take to answer. Node's default is 300 s, which lets an anonymous caller hold a webhook body
+// in memory for five minutes by trickling it, and so pin far more of them at once. Every request
+// this app accepts is small: 30 s is generous. Node checks it every 30 s, so a slow request is
+// cut between 30 and 60 s in.
+server.requestTimeout = 30_000;
 
 // How long a shutdown waits for in-flight requests before cutting the sockets. Below any
 // platform's grace period, so the process ends on its own terms rather than being killed.

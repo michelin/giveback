@@ -40,9 +40,10 @@ export const displayName = (fullName) => {
 /**
  * Refresh one claimed pull request
  *
- * Polling is the only mechanism available: when a maintainer merges a contributor's pull
- * request, the event lands in the *maintainer's* public feed, not the contributor's, so the
- * events job can never see the final state.
+ * When a maintainer merges a contributor's pull request, the event lands in the *maintainer's*
+ * public feed, not the contributor's: the events job sees the final state only when that
+ * maintainer is enrolled (refreshPullRequest() in src/db/pull_requests.js), so polling is what
+ * covers everyone else.
  * @returns {Promise<{changed: boolean, gone: boolean}>}
  */
 export const pollPullRequest = async (claimed) => {
@@ -108,7 +109,8 @@ export const run = async () => {
         ? SCHEDULING.POLL_MAX_INTERVAL_MINUTES
         : nextIntervalMinutes(pullRequest.poll_interval_minutes, result.changed, POLL_BOUNDS);
 
-      await pollCursor.markPollSucceeded(pullRequest.id, {
+      // The claim itself, lease included: see heldLease() in src/db/polling.js.
+      await pollCursor.markPollSucceeded(pullRequest, {
         intervalMinutes,
         delaySeconds: dispersedDelaySeconds(intervalMinutes, TICK_MINUTES),
       });
@@ -138,7 +140,7 @@ export const run = async () => {
       );
 
       await releaseClaim(
-        pollCursor.markPollFailed(pullRequest.id, retryInSeconds, error.message),
+        pollCursor.markPollFailed(pullRequest, retryInSeconds, error.message),
         logger,
         format.pr(pullRequest.number, repo),
         fields.pr(pullRequest.number, repo)

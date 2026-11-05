@@ -57,10 +57,13 @@ export const claimPullRequestsForPoll = async () => {
         SET poll_claimed_at = CURRENT_TIMESTAMP
         WHERE id IN (SELECT id FROM due)
         RETURNING id, number, repository_id, state, poll_interval_minutes, poll_error_count,
-                  opened_by
+                  opened_by, poll_claimed_at
       )
       SELECT c.id, c.number, c.repository_id, c.state, c.poll_interval_minutes,
              c.poll_error_count,
+             -- The token the release is fenced on, as text for the reason given in
+             -- claimInstallationsForSync().
+             c.poll_claimed_at::text AS lease,
              r.github_id, r.full_name,
              -- The due CTE's predicates again: two rows can share a login - an uninstalled
              -- account whose freed login somebody else enrolled with - and only a live one can
@@ -92,10 +95,33 @@ export const claimPullRequestsForPoll = async () => {
 };
 
 /**
- * Release a claimed pull request after a successful poll
- * @param {{intervalMinutes: number, delaySeconds: number}} outcome
+ * Whether a fenced release found its lease, saying so when it did not
+ *
+ * Same fence as the sync's - see heldLease() in installations.js. Nothing but a release clears
+ * this lease, so here it only ever catches a run that outlived CLAIM_LEASE_MINUTES while another
+ * took the row.
+ * @param {{number: number, full_name: string}} claim - The row as it was claimed
+ * @param {number} rowCount - What the release updated
+ * @returns {boolean} Whether the outcome was written
  */
-export const markPollSucceeded = async (id, { intervalMinutes, delaySeconds }) => {
+const heldLease = (claim, rowCount) => {
+  if (rowCount === 0) {
+    logger.info(
+      { pr_number: claim.number, repo: claim.full_name },
+      `the poll outcome for ${claim.full_name}#${claim.number} is dropped - another run claimed the row after this one's lease ran out`
+    );
+  }
+
+  return rowCount > 0;
+};
+
+/**
+ * Release a claimed pull request after a successful poll
+ * @param {{id: number, lease: string}} claim - The row as claimPullRequestsForPoll() returned it
+ * @param {{intervalMinutes: number, delaySeconds: number}} outcome
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
+ */
+export const markPollSucceeded = async (claim, { intervalMinutes, delaySeconds }) => {
   const queryText = `
     UPDATE github_pull_requests
     SET last_polled_at = CURRENT_TIMESTAMP,
@@ -108,23 +134,29 @@ export const markPollSucceeded = async (id, { intervalMinutes, delaySeconds }) =
         -- Cleared, or the page would keep showing a failure that has already been repaired.
         last_poll_error = NULL
     WHERE id = $1
+      AND poll_claimed_at = $4::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds, intervalMinutes]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, intervalMinutes, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
     // Named, because the caller cannot: this runs inside the poll job's per-subject try, whose
     // catch reports the failure as a failed poll of the pull request itself.
-    throw new Error(`could not release the poll claim on pull request row ${id}`, { cause });
+    throw new Error(`could not release the poll claim on pull request row ${claim?.id}`, { cause });
   }
 };
 
 /**
  * Release a claimed pull request after a failed poll
+ * @param {{id: number, lease: string}} claim - The row as claimPullRequestsForPoll() returned it
+ * @param {number} delaySeconds - Backoff before the next attempt
  * @param {?string} [errorMessage] - Why it failed. Overwritten by the next failure and cleared
  *   by the next success, so it only ever answers "what is wrong now"
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markPollFailed = async (id, delaySeconds, errorMessage = null) => {
+export const markPollFailed = async (claim, delaySeconds, errorMessage = null) => {
   const queryText = `
     UPDATE github_pull_requests
     SET next_poll_at = CURRENT_TIMESTAMP + make_interval(secs => $2::int),
@@ -132,11 +164,14 @@ export const markPollFailed = async (id, delaySeconds, errorMessage = null) => {
         poll_error_count = poll_error_count + 1,
         last_poll_error = $3::text
     WHERE id = $1
+      AND poll_claimed_at = $4::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds, errorMessage]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, errorMessage, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
-    throw new Error(`could not record a failed poll of pull request row ${id}`, { cause });
+    throw new Error(`could not record a failed poll of pull request row ${claim?.id}`, { cause });
   }
 };

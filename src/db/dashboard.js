@@ -500,7 +500,9 @@ export const listUsers = async () => {
  *
  * A bot's pull request is excluded for a reason of its own: no bot has an installation, so the
  * poller never touches one, and its merge is noticed through a maintainer's events feed - a
- * different path, on a different clock.
+ * different path, on a different clock. A person's merge can come in by that path too, when the
+ * maintainer is enrolled and the sync's refresh stamps it first, and it is kept: it is still when
+ * this application noticed, whichever of the two noticed first.
  *
  * Every merge rather than a figure per day: at a merge or two a day, a daily median is a gap on
  * most days and a two-point segment between the rest. Percentiles as percentile_cont computes

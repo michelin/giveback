@@ -56,6 +56,15 @@ const isOwnPullRequest = (pullRequest, githubHandle) =>
   pullRequest.user.login.toLowerCase() === githubHandle.toLowerCase();
 
 /**
+ * Whether an event that threw is gone for good, rather than worth reading the feed again for
+ *
+ * Deleted, gone, taken down: a 404, 410 or 451 answers the same on every run, and holding the
+ * ETag back for one would re-read the whole feed for ever. A 404 from minting the token is about
+ * the installation, not the event - see isTokenMintFailure().
+ */
+const isGoneForGood = (error) => [404, 410, 451].includes(error?.status) && !isTokenMintFailure(error);
+
+/**
  * Fetch the full pull request behind a PullRequestEvent
  *
  * By repository id, not by the name in the envelope. The name is what the repository was called
@@ -109,6 +118,7 @@ export const noteEvent = async (event, insert) => transaction(async (run) => {
  * Synchronize one installation's contributions
  * @param {Object} claimed - Row returned by claimInstallationsForSync
  * @returns {Promise<{changed: boolean, notModified: boolean, etag: ?string, prs: number, others: number, pushes: number, repositories: number, skipped: number}>}
+ *   `etag` null means "keep the stored one": on a 304, and after a skip worth retrying
  */
 export const syncInstallation = async (claimed) => {
   const {
@@ -130,7 +140,8 @@ export const syncInstallation = async (claimed) => {
     return stats;
   }
 
-  stats.etag = feed.etag;
+  // Whether an event threw for a reason the next run may not meet: see the end of the loop.
+  let retryable = false;
 
   // The one thing this job can lose permanently, and the only place it can be noticed. A warn
   // rather than an error: the sync succeeds with everything GitHub still serves, but this
@@ -183,11 +194,17 @@ export const syncInstallation = async (claimed) => {
         //
         // The snapshot is written for somebody else's pull request too: `hydrated` is read off
         // `title IS NOT NULL`, so skipping it would re-fetch that event on every run.
+        //
+        // Somebody else's pull request still refreshes the author's row when there is one: a
+        // reopen or a merge by a maintainer is only ever in the maintainer's feed, and the poll
+        // no longer reads a row it stored as closed - see refreshPullRequest().
         await transaction(async (run) => {
           await eventLedger.recordPullRequestSnapshot(event.id, pullRequest, run);
 
           if (own) {
             await pullRequestsDb.upsertPullRequest(pullRequest, noted.repositoryId, run);
+          } else {
+            await pullRequestsDb.refreshPullRequest(pullRequest, run);
           }
         });
 
@@ -215,6 +232,7 @@ export const syncInstallation = async (claimed) => {
       }
     } catch (error) {
       stats.skipped++;
+      retryable ||= !isGoneForGood(error);
 
       // A warn: a deleted fork or a repository turned private is the common case, it is
       // counted, and the run still succeeds.
@@ -231,6 +249,18 @@ export const syncInstallation = async (claimed) => {
       );
     }
   }
+
+  // The fresh ETag is stored only when nothing worth retrying was skipped. Stored after a 5xx, a
+  // rate limit, a socket or a database error, it would earn the next run a 304, and the event
+  // that failed would never be offered again: no snapshot, no pull request row, for good unless
+  // the person happens to produce another public event. Null keeps the stored ETag
+  // (markSyncSucceeded COALESCEs it), which this 200 has just proved stale, so the next run reads
+  // the feed again.
+  //
+  // ponytail: an error with no status is read as transient, so an event that throws the same way
+  // on every run (a malformed payload) costs a full feed read per run until it ages out of the
+  // window. Classify those as permanent if one ever shows up in the skip warnings.
+  stats.etag = retryable ? null : feed.etag;
 
   return stats;
 };
@@ -258,7 +288,9 @@ export const run = async () => {
       );
 
       // Released per installation, not per batch, so a worker killed mid-run keeps its progress.
-      await installationsDb.markSyncSucceeded(installation.id, {
+      // The claim itself, lease included: a release the row no longer expects is dropped, and
+      // that is no failure - see heldLease() in src/db/installations.js.
+      await installationsDb.markSyncSucceeded(installation, {
         intervalMinutes,
         delaySeconds: dispersedDelaySeconds(intervalMinutes, TICK_MINUTES),
         etag: stats.etag,
@@ -315,6 +347,20 @@ export const run = async () => {
         afterFailures: SCHEDULING.SYNC_DISABLE_AFTER_FAILURES,
       });
 
+      // Released explicitly rather than waiting out the lease, and pushed out so a permanently
+      // broken installation stops taking a slot every tick.
+      //
+      // Released before the verdict is reported: the counts behind it come from the claim, and a
+      // release the row no longer expects (re-enrolled, renamed, suspended or claimed again
+      // meanwhile - see heldLease() in src/db/installations.js) writes nothing - so a retirement
+      // it dropped is neither counted nor announced.
+      const released = await releaseClaim(
+        installationsDb.markSyncFailed(installation, retryInSeconds, error.message, disableReason, notFound),
+        logger,
+        format.installation(installation.installation_id),
+        fields.installation(installation.installation_id)
+      );
+
       // The Error stays at each call site rather than riding inside this object: a spread hides
       // it from the reader and from the check that every logger.error hands one to pino.
       const context = {
@@ -324,7 +370,7 @@ export const run = async () => {
         consecutive_failures: consecutive,
       };
 
-      if (disableReason) {
+      if (disableReason && released !== false) {
         totals.disabled++;
 
         const accountGone = disableReason === 'account gone';
@@ -341,15 +387,6 @@ export const run = async () => {
           `could not sync ${format.user(installation.user_login)} - retrying in ${format.duration(retryInSeconds * 1000)}: ${error.message}`
         );
       }
-
-      // Released explicitly rather than waiting out the lease, and pushed out so a permanently
-      // broken installation stops taking a slot every tick.
-      await releaseClaim(
-        installationsDb.markSyncFailed(installation.id, retryInSeconds, error.message, disableReason, notFound),
-        logger,
-        format.installation(installation.installation_id),
-        fields.installation(installation.installation_id)
-      );
     }
   }
 };

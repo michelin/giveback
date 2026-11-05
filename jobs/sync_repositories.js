@@ -39,8 +39,10 @@ export const refreshRepository = async (claimed) => {
     claimed.installation_id, claimed.github_id, claimed.etag);
 
   if (notModified) {
+    // The claim itself, lease included, as every release here: see heldLease() in
+    // src/db/repositories.js.
     await repositoriesDb.markRefreshUnchanged(
-      claimed.id,
+      claimed,
       dispersedDelaySeconds(INTERVAL_MINUTES, TICK_MINUTES)
     );
 
@@ -51,17 +53,21 @@ export const refreshRepository = async (claimed) => {
   // signal - GitHub exposes no rename history - and nothing has to move with it: every child row
   // points at this row rather than at its name, so a rename costs one column and one history
   // row.
-  const renamed = repository.full_name !== claimed.full_name;
+  let renamed = repository.full_name !== claimed.full_name;
 
   // Together, so a name is never overwritten without its predecessor being written down.
   await transaction(async (run) => {
-    await repositoriesDb.markRefreshSucceeded(
-      claimed.id,
+    const recorded = await repositoriesDb.markRefreshSucceeded(
+      claimed,
       repository,
       etag,
       dispersedDelaySeconds(INTERVAL_MINUTES, TICK_MINUTES),
       run
     );
+
+    // Nor written down without the name: a refresh the row no longer expected wrote nothing, and
+    // the run that holds the row now records the rename itself.
+    renamed &&= recorded;
 
     if (renamed) {
       await repositoriesDb.recordRename(claimed.id, claimed.full_name, repository.full_name, run);
@@ -101,7 +107,7 @@ export const run = async () => {
       noteFailure(repository.full_name, new Error(NO_INSTALLATION));
       await releaseClaim(
         repositoriesDb.markRefreshFailed(
-          repository.id,
+          repository,
           dispersedDelaySeconds(INTERVAL_MINUTES, TICK_MINUTES),
           NO_INSTALLATION
         ),
@@ -160,8 +166,8 @@ export const run = async () => {
       // One release site, two verdicts. A gone row leaves the queue through gone_at; anything
       // else goes back into it with a backoff.
       const release = gone
-        ? repositoriesDb.markRepositoryGone(repository.id, `${error.status} by id after ${consecutive404s} attempts`)
-        : repositoriesDb.markRefreshFailed(repository.id, retryInSeconds, error.message, notFound);
+        ? repositoriesDb.markRepositoryGone(repository, `${error.status} by id after ${consecutive404s} attempts`)
+        : repositoriesDb.markRefreshFailed(repository, retryInSeconds, error.message, notFound);
 
       await releaseClaim(release, logger, repository.full_name, { repo: repository.full_name });
     }

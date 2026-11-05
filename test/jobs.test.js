@@ -78,7 +78,7 @@ const STUBS = {
   '/src/db/repositories.js': stubModule(
     'ensureRepository', 'claimRepositoriesForRefresh', 'markRefreshSucceeded', 'recordRename',
     'markRefreshUnchanged', 'markRefreshFailed', 'markRepositoryGone'),
-  '/src/db/pull_requests.js': stubModule('upsertPullRequest'),
+  '/src/db/pull_requests.js': stubModule('upsertPullRequest', 'refreshPullRequest'),
   '/src/db/polling.js': stubModule('claimPullRequestsForPoll', 'markPollSucceeded', 'markPollFailed'),
   '/src/db/installations.js': stubModule(
     'claimInstallationsForSync', 'markSyncSucceeded', 'markSyncFailed', 'countInstallationStates',
@@ -231,6 +231,7 @@ describe("syncInstallation", () => {
       pullRequestById: async () => ({ number: 1, state: 'open', user: { login: 'octocat' } }),
       recordPullRequestSnapshot: async () => undefined,
       upsertPullRequest: async () => undefined,
+      refreshPullRequest: async () => false,
       ...over,
     };
   };
@@ -341,6 +342,33 @@ describe("syncInstallation", () => {
     assert.equal(stats.prs, 0);
     assert.equal(stats.others, 1, 'counted apart, not dropped silently');
     assert.equal(stats.changed, true, 'the feed did move - the ledger grew by one event');
+  });
+
+  test("somebody else's pull request refreshes the author's row, in the snapshot's transaction", async () => {
+    // A reopen or a merge by a maintainer is only in the maintainer's feed, and the poll stopped
+    // reading the author's row the day it stored `closed`. This is the only way the row learns.
+    const reopened = { id: 5001, number: 3212, state: 'open', user: { login: 'xusc' } };
+
+    wire(
+      { notModified: false, events: [event('PullRequestEvent', '1', 'tchiotludo/akhq')], etag: null },
+      { pullRequestById: async () => reopened }
+    );
+
+    await sync.syncInstallation(claimedInstallation());
+
+    assert.equal(countOf('refreshPullRequest'), 1);
+    assert.equal(argsOf('refreshPullRequest')[0], reopened, 'refreshed from the hydration response itself');
+    assert.equal(typeof argsOf('refreshPullRequest')[1], 'function', 'inside the transaction, beside the snapshot');
+    assert.equal(countOf('upsertPullRequest'), 0, 'refreshing is not inserting');
+  });
+
+  test("the person's own pull request is upserted, never merely refreshed", async () => {
+    wire({ notModified: false, events: [event('PullRequestEvent', '1', 'michelin/tool')], etag: null });
+
+    await sync.syncInstallation(claimedInstallation());
+
+    assert.equal(countOf('upsertPullRequest'), 1);
+    assert.equal(countOf('refreshPullRequest'), 0);
   });
 
   test("the snapshot of somebody else's pull request is still written - the ledger keeps everything", async () => {
@@ -544,6 +572,110 @@ describe("syncInstallation", () => {
     assert.equal(stats.skipped, 1);
     assert.equal(stats.pushes, 1);
   });
+
+  test("an event that failed for a transient reason holds the fresh ETag back", async () => {
+    // The ledger row is committed before the hydration, so the repair path re-fetches a failed
+    // event - but only on a run that reads the feed. Storing this run's ETag earns the next run a
+    // 304, and the event is never offered again. A null keeps the stored ETag, which this 200 has
+    // just proved stale.
+    const transient = [
+      ['a 5xx', httpError(502, 'Bad Gateway')],
+      ['a rate limit', httpError(403, 'API rate limit exceeded')],
+      ['a 429', httpError(429, 'Too Many Requests')],
+      ['a socket hung up', new Error('socket hang up')],
+      ['a token that could not be minted', mintError()],
+    ];
+
+    for (const [why, error] of transient) {
+      calls = [];
+      wire(
+        { notModified: false, events: [event('PullRequestEvent', '1', 'michelin/tool')], etag: 'W/"new"' },
+        { pullRequestById: async () => { throw error; } }
+      );
+
+      const stats = await sync.syncInstallation(claimedInstallation({ events_etag: 'W/"old"' }));
+
+      assert.equal(stats.skipped, 1, why);
+      assert.equal(stats.etag, null, `${why} must not advance the ETag`);
+    }
+  });
+
+  test("a database error on an event holds the fresh ETag back too", async () => {
+    wire(
+      { notModified: false, events: [event('PushEvent', '1', 'michelin/tool')], etag: 'W/"new"' },
+      { insertPushEventIfNotExists: async () => { throw new Error('could not save push event 1'); } }
+    );
+
+    const stats = await sync.syncInstallation(claimedInstallation({ events_etag: 'W/"old"' }));
+
+    assert.equal(stats.skipped, 1);
+    assert.equal(stats.etag, null);
+  });
+
+  test("an event gone for good still lets the ETag advance - or the feed is re-read for ever", async () => {
+    for (const status of [404, 410, 451]) {
+      calls = [];
+      wire(
+        {
+          notModified: false,
+          events: [event('PullRequestEvent', '1', 'michelin/gone'), event('PullRequestEvent', '2', 'michelin/tool')],
+          etag: 'W/"new"',
+        },
+        {
+          pullRequestById: async (octokit, githubRepoId) => {
+            if (githubRepoId === 901) {
+              throw httpError(status, 'Gone');
+            }
+
+            return { number: 2, state: 'open', user: { login: 'octocat' } };
+          },
+        }
+      );
+
+      const stats = await sync.syncInstallation(claimedInstallation({ events_etag: 'W/"old"' }));
+
+      assert.equal(stats.skipped, 1, `${status}`);
+      assert.equal(stats.etag, 'W/"new"', `a ${status} answers the same next run`);
+    }
+  });
+
+  test("the ETag held back is what run() hands to markSyncSucceeded", async () => {
+    wire(
+      { notModified: false, events: [event('PullRequestEvent', '1', 'michelin/tool')], etag: 'W/"new"' },
+      {
+        claimInstallationsForSync: async () => [{
+          ...claimedInstallation({ events_etag: 'W/"old"' }),
+          sync_interval_minutes: 15, sync_error_count: 0, sync_404_count: 0,
+        }],
+        pullRequestById: async () => { throw httpError(502, 'Bad Gateway'); },
+        markSyncSucceeded: async () => undefined,
+      }
+    );
+
+    await sync.run();
+
+    assert.equal(argsOf('markSyncSucceeded')[1].etag, null);
+  });
+
+  test("run() releases with the claim it took, and a release the row no longer expects is no failure", async () => {
+    // The release is fenced on the lease, so it needs the claim itself, not its id. Dropped, it
+    // resolves false - the row was re-enrolled, renamed or claimed again meanwhile - and must not
+    // be retried as a failed sync on top of the outcome that replaced it.
+    const claimed = {
+      ...claimedInstallation(), sync_interval_minutes: 15, sync_error_count: 0, sync_404_count: 0,
+      lease: '2026-11-04 10:00:00.123456+01',
+    };
+
+    wire({ notModified: true, events: [], etag: null }, {
+      claimInstallationsForSync: async () => [claimed],
+      markSyncSucceeded: async () => false,
+    });
+
+    await sync.run();
+
+    assert.equal(argsOf('markSyncSucceeded')[0].lease, claimed.lease);
+    assert.equal(countOf('markSyncFailed'), 0);
+  });
 });
 
 describe("noteEvent", () => {
@@ -700,7 +832,7 @@ describe("the poll run, when a subject fails", () => {
     behaviours = {
       claimPullRequestsForPoll: async () => [claimedRow(1), claimedRow(2)],
       fetchPullRequest: async () => { throw httpError(502, 'Bad Gateway'); },
-      markPollFailed: async (id) => {
+      markPollFailed: async ({ id }) => {
         if (id === 1) {
           throw new Error('could not record a failed poll of pull request row 1');
         }
@@ -709,7 +841,21 @@ describe("the poll run, when a subject fails", () => {
 
     await poll.run();
 
-    assert.deepEqual(calls.filter((call) => call.name === 'markPollFailed').map((call) => call.args[0]), [1, 2]);
+    assert.deepEqual(calls.filter((call) => call.name === 'markPollFailed').map((call) => call.args[0].id), [1, 2]);
+  });
+
+  test("a poll is released with the claim it took, and a release the row no longer expects is no failure", async () => {
+    behaviours = {
+      claimPullRequestsForPoll: async () => [{ ...claimedRow(1), lease: '2026-11-04 10:00:00.123456+01' }],
+      fetchPullRequest: async () => ({ number: 1, state: 'open' }),
+      upsertPullRequest: async () => undefined,
+      markPollSucceeded: async () => false,
+    };
+
+    await poll.run();
+
+    assert.equal(argsOf('markPollSucceeded')[0].lease, '2026-11-04 10:00:00.123456+01', 'the fence needs the lease, not the id');
+    assert.equal(countOf('markPollFailed'), 0);
   });
 });
 
@@ -777,7 +923,7 @@ describe("the sync run, when an installation fails", () => {
 
   test("a release that fails is reported and the run moves on to the next installation", async () => {
     failing([claimedRow({ id: 1 }), claimedRow({ id: 2, user_login: 'hubber' })], httpError(502, 'Bad Gateway'));
-    behaviours.markSyncFailed = async (id) => {
+    behaviours.markSyncFailed = async ({ id }) => {
       if (id === 1) {
         throw new Error('could not record a failed sync of installation row 1');
       }
@@ -785,7 +931,19 @@ describe("the sync run, when an installation fails", () => {
 
     await sync.run();
 
-    assert.deepEqual(calls.filter((call) => call.name === 'markSyncFailed').map((call) => call.args[0]), [1, 2]);
+    assert.deepEqual(calls.filter((call) => call.name === 'markSyncFailed').map((call) => call.args[0].id), [1, 2]);
+  });
+
+  test("a failed sync is released with the claim it took, retirement verdict and all", async () => {
+    // The verdict was read off this claim's counts, so it is the claim's lease that decides
+    // whether it still applies: a rename or a re-enrollment since then has reset them.
+    failing([claimedRow({ sync_404_count: SCHEDULING.SYNC_DISABLE_AFTER_404 - 1, lease: '2026-11-04 10:00:00.123456+01' })], httpError(404, 'Not Found'));
+    behaviours.markSyncFailed = async () => false;
+
+    await sync.run();
+
+    assert.equal(argsOf('markSyncFailed')[0].lease, '2026-11-04 10:00:00.123456+01');
+    assert.deepEqual(verdicts(), [{ disableReason: 'account gone', notFound: true }]);
   });
 });
 
@@ -844,7 +1002,7 @@ describe("the repository refresh run, when a repository fails", () => {
     // database error there aborted the refresh of every repository after it.
     behaviours = {
       claimRepositoriesForRefresh: async () => [claimedRow({ id: 1, installation_id: null }), claimedRow({ id: 2 })],
-      markRefreshFailed: async (id) => {
+      markRefreshFailed: async ({ id }) => {
         if (id === 1) {
           throw new Error('could not record a failed refresh of repository row 1');
         }
@@ -856,7 +1014,7 @@ describe("the repository refresh run, when a repository fails", () => {
     await repositories.run();
 
     assert.equal(countOf('fetchRepository'), 1, 'only the row with an installation is fetched');
-    assert.deepEqual(argsOf('markRefreshUnchanged').slice(0, 1), [2], 'the run reached the second repository');
+    assert.equal(argsOf('markRefreshUnchanged')[0].id, 2, 'the run reached the second repository');
   });
 });
 
@@ -890,7 +1048,7 @@ describe("refreshRepository", () => {
     behaviours = {
       fetchRepository: async () => ({ notModified: false, repository, etag: 'W/"fresh"' }),
       transaction: async (work) => work((...args) => globalThis.__jobFakes.record('run', args)),
-      markRefreshSucceeded: async () => undefined,
+      markRefreshSucceeded: async () => true,
       recordRename: async () => undefined,
     };
   };
@@ -910,7 +1068,7 @@ describe("refreshRepository", () => {
     assert.equal(countOf('markRefreshUnchanged'), 1);
     assert.equal(countOf('markRefreshSucceeded'), 0, 'there is no body to write');
     assert.equal(countOf('transaction'), 0);
-    assert.equal(argsOf('markRefreshUnchanged')[0], 42);
+    assert.equal(argsOf('markRefreshUnchanged')[0].id, 42);
   });
 
   test("the stored ETag is what makes the request conditional", async () => {
@@ -936,6 +1094,18 @@ describe("refreshRepository", () => {
       calls.map((call) => call.name),
       ['fetchRepository', 'transaction', 'markRefreshSucceeded', 'recordRename']
     );
+  });
+
+  test("a refresh the row no longer expected records no rename - the run holding it now does", async () => {
+    answering({ full_name: 'michelin/renamed-tool', stargazers_count: 12 });
+    behaviours.markRefreshSucceeded = async () => false;
+
+    const claimed = claimedRepository({ lease: '2026-11-04 10:00:00.123456+01' });
+    const result = await repositories.refreshRepository(claimed);
+
+    assert.equal(argsOf('markRefreshSucceeded')[0], claimed, 'the fence needs the claim, lease included');
+    assert.equal(result.renamed, false);
+    assert.equal(countOf('recordRename'), 0, 'the rename would be written down twice, once by each run');
   });
 
   test("a repository still called what it was called records no rename", async () => {

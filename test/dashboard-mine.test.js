@@ -593,8 +593,8 @@ describe("your own contributions, in each of the four states a read leaves them"
     assert.equal(run.elements.get('y-list-sub').hidden, true, 'and no order for a list of nothing');
 
     // The list's panel stays, holding the one empty state. "You have not contributed" is the
-    // wrong sentence: opened_by is a frozen login, so a person GitHub renamed matches nothing
-    // here and their history is under the old name.
+    // wrong sentence: a person GitHub renamed without the bot following it matches nothing here,
+    // and their history is under the old name.
     const none = run.elements.get('y-list-none').innerHTML;
 
     assert.match(none, /^<div class="nothing"><b>No pull request is recorded under the-operator\.<\/b>/);

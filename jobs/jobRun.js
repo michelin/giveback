@@ -50,7 +50,8 @@ export const failureLedger = (kept = 20) => {
  * @param {import('pino').Logger} logger - The job's own logger
  * @param {string} subject - How the subject is named in the message
  * @param {Object} [context] - The subject's identifying fields
- * @returns {Promise<void>}
+ * @returns {Promise<*>} What the release resolved to - false from a fenced release whose outcome
+ *   was dropped - or undefined when it threw
  */
 export const releaseClaim = (release, logger, subject, context = {}) =>
   release.catch((releaseError) => {

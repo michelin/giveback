@@ -140,6 +140,82 @@ export const upsertPullRequest = async (pullRequest, repositoryId, run = query) 
 };
 
 /**
+ * Bring an existing pull request row up to date from a hydration done for somebody else's feed
+ *
+ * The sync hydrates every PullRequestEvent in a feed, but only the author's own events reach
+ * upsertPullRequest(). A reopen or a merge done by a maintainer lands in the MAINTAINER's feed,
+ * and the poll stopped reading the row the day it stored `closed` - so without this, a pull
+ * request closed by a stale bot and later reopened and merged stays closed and unmerged for good.
+ *
+ * UPDATE only, never INSERT: a row exists only for a pull request an enrolled person opened, and
+ * a maintainer's feed must not create one for anybody else's. `origin = 'github'` because a
+ * hand-entered id is the other forge's and can collide with this one.
+ *
+ * The columns upsertPullRequest() refreshes, minus `opened_by` and `user_type`: who opened it is
+ * the poll's to rewrite, and this response may name nobody (a deleted account). A state that
+ * moved also makes the row due now, so a reopened pull request re-enters the poll queue on the
+ * next tick rather than at the end of its old interval. Due now, not NULL: the claim takes either,
+ * but the ops page reads NULL as never scheduled and counts it late since it was recorded, which
+ * for a pull request reopened months later is months.
+ *
+ * Never back in time: a row whose stored `updated_at` is newer than this response was written
+ * from a later read, by the poll or by the author's own sync, and this one would undo it.
+ * @param {Object} pullRequest - As returned by the hydration call
+ * @param {Function} [run] - Bound to a transaction by transaction(); defaults to the pool
+ * @returns {Promise<boolean>} Whether a row was refreshed
+ */
+export const refreshPullRequest = async (pullRequest, run = query) => {
+  const queryText = `
+    UPDATE github_pull_requests
+    SET number = $2,
+        html_url = $3,
+        title = $4,
+        state = $5,
+        created_at = $6,
+        updated_at = $7,
+        closed_at = $8,
+        merged_at = $9,
+        merged = $10,
+        merged_by = $11,
+        commits_count = $12,
+        changed_files = $13,
+        src_repo = $14,
+        src_ref = $15,
+        dest_ref = $16,
+        -- The right-hand side reads the row as it was, so both compare against the old state.
+        state_changed_at = CASE WHEN state IS DISTINCT FROM $5 THEN CURRENT_TIMESTAMP ELSE state_changed_at END,
+        next_poll_at = CASE WHEN state IS DISTINCT FROM $5 THEN CURRENT_TIMESTAMP ELSE next_poll_at END
+    WHERE pull_request_id = $1 AND origin = 'github'
+      AND (updated_at IS NULL OR updated_at <= $7)
+  `;
+
+  try {
+    const { rowCount } = await run(queryText, [
+      pullRequest.id,
+      pullRequest.number,
+      pullRequest.html_url ?? null,
+      pullRequest.title,
+      pullRequest.state,
+      pullRequest.created_at,
+      pullRequest.updated_at,
+      pullRequest.closed_at,
+      pullRequest.merged_at,
+      pullRequest.merged,
+      pullRequest.merged_by?.login ?? null,
+      pullRequest.commits,
+      pullRequest.changed_files,
+      pullRequest.head?.repo?.full_name ?? null,
+      pullRequest.head?.ref ?? null,
+      pullRequest.base?.ref ?? null,
+    ]);
+
+    return rowCount > 0;
+  } catch (cause) {
+    throw new Error(`could not refresh pull request ${pullRequest?.id} (#${pullRequest?.number}) on ${pullRequest?.base?.repo?.full_name}`, { cause });
+  }
+};
+
+/**
  * A contribution recorded by hand, by an operator
  *
  * Separate from upsertPullRequest() rather than a flag on it, and the separation is the point:

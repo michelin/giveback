@@ -6,6 +6,48 @@ import { SCHEDULING } from "../utils/constants.js";
 const logger = getLogger("installations");
 
 /**
+ * Move a renamed person's pull requests to their new login, in the statement that renames them
+ *
+ * A CTE for the three statements that can rewrite user_login on an existing row: the OAuth
+ * callback, a reinstall's webhook and the reconciliation. Each defines `stale` as the
+ * (id, old_login, new_login) rows it is about to write, read before the write. Whichever of them
+ * stores the new login first is the one that must carry: it leaves the others nothing stale to
+ * see, so a carry left to the reconciliation alone never happens once a reinstall got there first.
+ *
+ * Every query that decides whether a contribution is polled or measured joins the person on the
+ * NAME (polling.js's claim, dashboard.js's POLLABLE, contributions.js's report), so rewriting the
+ * installation alone orphans every past pull request of the renamed user: the poll claim stops
+ * matching, the open ones are never checked again and the merge is never detected. Measured: one
+ * claimed row became zero. A null new login carries nothing: it would unattribute them instead.
+ *
+ * It is a heuristic on a name, and GitHub frees a login on a rename for anybody to register. So
+ * nothing moves while another row still stores the old login: a name two people held cannot say
+ * whose pull request is whose. The upserts are why. Their stored login can be years old -
+ * uninstalled, renamed, reinstalled - and somebody else may have enrolled under the freed name
+ * since, whose whole history a carry would hand to the wrong person for good, on an unverified
+ * webhook. The price runs the other way, and is rarer: whoever took a login an old row still
+ * stores, then renamed, keeps their pull requests under it, and the open ones are no longer polled.
+ *
+ * This is a stop-gap, not the fix. The real answer is an opened_by_user_id column joined to
+ * github_installations.user_id; drop this rewrite once that column is populated and joined on.
+ */
+const CARRY_CONTRIBUTIONS = `
+  carried AS (
+    UPDATE github_pull_requests pr
+    SET opened_by = stale.new_login
+    FROM stale
+    WHERE pr.opened_by = stale.old_login
+      AND stale.new_login IS NOT NULL
+      -- lower(): GitHub logins are case-insensitive, so 'OctoCat' is the same name.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM github_installations other
+        WHERE lower(other.user_login) = lower(stale.old_login)
+          AND other.id <> stale.id
+      )
+  )`;
+
+/**
  * Record an installation reported by the (signed) installation.created webhook
  *
  * Written as pending: the webhook proves the app was installed but says nothing about the
@@ -24,6 +66,16 @@ export const insertPendingInstallation = async (account, installationId) => {
     // For a user installation account.id IS the GitHub user id, the same value the OAuth
     // callback reads from GET /user — which is what binds the two paths together.
     const queryText = `
+      WITH stale AS (
+        SELECT id, user_login AS old_login, $2::text AS new_login
+        FROM github_installations
+        WHERE user_id = $1
+          AND user_login IS DISTINCT FROM $2
+          -- The update below rewrites the login only for a new installation id, so only then
+          -- does anything move with it.
+          AND installation_id IS DISTINCT FROM $3
+      ),
+      ${CARRY_CONTRIBUTIONS}
       INSERT INTO github_installations (
         user_id, user_login, installation_id, installation_suspended, installation_deleted,
         next_sync_at, sync_interval_minutes, sync_error_count
@@ -90,7 +142,17 @@ export const verifyInstallation = async (user, enrollmentEmailAddress, installat
   try {
     const { id, login, name } = user;
 
+    // The stored login is read before the upsert rewrites it - every part of one statement sees
+    // the table as it was - so a person who renamed since they last enrolled keeps their pull
+    // requests. See CARRY_CONTRIBUTIONS.
     const queryText = `
+      WITH stale AS (
+        SELECT id, user_login AS old_login, $2::text AS new_login
+        FROM github_installations
+        WHERE user_id = $1
+          AND user_login IS DISTINCT FROM $2
+      ),
+      ${CARRY_CONTRIBUTIONS}
       INSERT INTO github_installations (
         user_id, user_login, user_name, user_enrollment_email_address,
         installation_id, installation_suspended, installation_deleted, verified_at,
@@ -218,7 +280,8 @@ export const handleInstallationEvent = async (installationEvent, installationId)
  * *next* batch, so scaling out partitions the work instead of duplicating it.
  *
  * sync_claimed_at is a lease, not an in-flight flag: a worker that dies leaves it set, and the
- * row returns to the queue once the lease expires.
+ * row returns to the queue once the lease expires. Each row carries it back as `lease`, the token
+ * the release is fenced on - see heldLease().
  */
 export const claimInstallationsForSync = async () => {
   try {
@@ -242,8 +305,10 @@ export const claimInstallationsForSync = async () => {
         LIMIT $1
         FOR UPDATE SKIP LOCKED
       )
+      -- The lease as text: a JavaScript Date keeps milliseconds and the column microseconds, so
+      -- one read back as a Date would never compare equal to it again.
       RETURNING id, installation_id, user_login, events_etag, sync_interval_minutes,
-                sync_error_count, sync_404_count, last_synced_at
+                sync_error_count, sync_404_count, last_synced_at, sync_claimed_at::text AS lease
     `;
 
     const result = await query(queryText, [
@@ -260,13 +325,39 @@ export const claimInstallationsForSync = async () => {
 };
 
 /**
+ * Whether a fenced release found its lease, saying so when it did not
+ *
+ * A release writes only while the row still holds the lease its claim took. It finds none, or
+ * another, when the row was re-enrolled, reinstalled, renamed or uninstalled, or a suspend or
+ * unsuspend webhook arrived, while this worker held it - each of those clears the lease - or
+ * when the lease ran out and another run claimed the row. The outcome was decided on a snapshot the row no longer
+ * matches, so it is dropped: written, it would put a backoff, a stale count or even a retirement
+ * on a row that has just been repaired. Not a failure: the row is already where it should be.
+ * @param {{installation_id: number, user_login: string}} claim - The row as it was claimed
+ * @param {number} rowCount - What the release updated
+ * @returns {boolean} Whether the outcome was written
+ */
+const heldLease = (claim, rowCount) => {
+  if (rowCount === 0) {
+    logger.info(
+      { ...fields.installation(claim.installation_id), ...fields.user(claim.user_login) },
+      `the sync outcome for ${format.user(claim.user_login)} is dropped - the row was re-enrolled, reinstalled, renamed, suspended or unsuspended by webhook, uninstalled or claimed again while this run held it`
+    );
+  }
+
+  return rowCount > 0;
+};
+
+/**
  * Release a claimed installation after a successful sync
  *
  * Committed per installation rather than per batch, so a worker killed mid-run keeps the
- * progress it already made.
+ * progress it already made. Fenced on the lease - see heldLease().
+ * @param {{id: number, lease: string}} claim - The row as claimInstallationsForSync() returned it
  * @param {{intervalMinutes: number, delaySeconds: number, etag: ?string}} outcome
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markSyncSucceeded = async (id, { intervalMinutes, delaySeconds, etag }) => {
+export const markSyncSucceeded = async (claim, { intervalMinutes, delaySeconds, etag }) => {
   const queryText = `
     UPDATE github_installations
     SET last_synced_at = CURRENT_TIMESTAMP,
@@ -281,21 +372,28 @@ export const markSyncSucceeded = async (id, { intervalMinutes, delaySeconds, eta
         -- Cleared, or the page would keep showing a failure that has already been repaired.
         last_sync_error = NULL
     WHERE id = $1
+      AND sync_claimed_at = $5::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds, intervalMinutes, etag ?? null]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, intervalMinutes, etag ?? null, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
     // Named, because the caller cannot. This runs inside the job's per-subject try, whose
     // catch reads "could not sync <user>" and then runs the backoff and retirement machinery
     // as if GitHub had failed - so an unwrapped driver sentence gets attributed to the wrong
     // operation.
-    throw new Error(`could not release the sync claim on installation row ${id}`, { cause });
+    throw new Error(`could not release the sync claim on installation row ${claim?.id}`, { cause });
   }
 };
 
 /**
  * Release a claimed installation after a failed sync
+ *
+ * Fenced on the lease like markSyncSucceeded(), and it matters most here: the retirement below
+ * is decided on the counts the claim returned.
+ * @param {{id: number, lease: string}} claim - The row as claimInstallationsForSync() returned it
  * @param {number} delaySeconds - Dispersed on this path too: an outage fails every subject at
  *   once, and an undispersed backoff would send the whole population back at the same instant
  * @param {?string} [errorMessage] - Why it failed. Overwritten by the next failure and cleared
@@ -303,8 +401,9 @@ export const markSyncSucceeded = async (id, { intervalMinutes, delaySeconds, eta
  * @param {?string} [disableReason] - From disableReasonFor(), or null to keep retrying
  * @param {boolean} [notFound] - The feed itself answered 404. Any other failure breaks the run
  *   of 404s, so sync_404_count only ever counts consecutive ones
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markSyncFailed = async (id, delaySeconds, errorMessage = null, disableReason = null, notFound = false) => {
+export const markSyncFailed = async (claim, delaySeconds, errorMessage = null, disableReason = null, notFound = false) => {
   const queryText = `
     UPDATE github_installations
     SET next_sync_at = CURRENT_TIMESTAMP + make_interval(secs => $2::int),
@@ -312,17 +411,20 @@ export const markSyncFailed = async (id, delaySeconds, errorMessage = null, disa
         sync_error_count = sync_error_count + 1,
         sync_404_count = CASE WHEN $5::boolean THEN sync_404_count + 1 ELSE 0 END,
         last_sync_error = $3::text,
-        -- Written in the same statement as the increment, so the count the caller's decision
-        -- was made on cannot move underneath it.
+        -- Written in the same statement as the increment, and fenced on the lease: every path
+        -- that resets the counts the caller's decision was made on also clears the lease.
         sync_disabled_at = CASE WHEN $4::text IS NULL THEN sync_disabled_at ELSE CURRENT_TIMESTAMP END,
         sync_disabled_reason = COALESCE($4::text, sync_disabled_reason)
     WHERE id = $1
+      AND sync_claimed_at = $6::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds, errorMessage, disableReason, notFound]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, errorMessage, disableReason, notFound, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
-    throw new Error(`could not record a failed sync of installation row ${id}`, { cause });
+    throw new Error(`could not record a failed sync of installation row ${claim?.id}`, { cause });
   }
 };
 
@@ -521,8 +623,8 @@ export const listKnownInstallationIds = async () => {
  * A rename also clears a retirement made for 'account gone', because that verdict was reached
  * on the 404 this very rename was causing. Retirements for any other reason stand.
  *
- * The stored contributions are carried across in the same transaction — see the comment on the
- * `carried` CTE below for why that is required and why it is only a stop-gap.
+ * The stored contributions are carried across in the same statement — see CARRY_CONTRIBUTIONS
+ * for why that is required and why it is only a stop-gap.
  * @returns {Promise<Array<{old_login: string, new_login: string}>>} The renames applied
  */
 export const refreshStaleLogins = async (liveInstallations) => {
@@ -560,24 +662,7 @@ export const refreshStaleLogins = async (liveInstallations) => {
       WHERE gi.id = stale.id
       RETURNING stale.old_login, stale.new_login
     ),
-    -- The contributions have to move with the login, in this same transaction. Every query
-    -- that decides whether a contribution is polled or measured joins the person on the NAME
-    -- (polling.js's claim, dashboard.js's POLLABLE, contributions.js's report), so rewriting
-    -- the installation alone orphans every past pull request of the renamed user: the poll
-    -- claim stops matching, the open ones are never checked again and the merge is never
-    -- detected. Measured: one claimed row became zero.
-    --
-    -- This is a stop-gap, not the fix. It is a heuristic on a name, so it misfires if the
-    -- freed old login has since been taken by another enrolled contributor. The real answer is
-    -- an opened_by_user_id column joined to github_installations.user_id; drop this rewrite
-    -- once that column is populated and joined on.
-    carried AS (
-      UPDATE github_pull_requests pr
-      SET opened_by = s.new_login
-      FROM stale s
-      WHERE pr.opened_by = s.old_login
-      RETURNING 1
-    )
+    ${CARRY_CONTRIBUTIONS}
     -- A plain SELECT closes the statement, because RETURNING on the pull-request UPDATE would
     -- yield one row per contribution: the caller counts these rows as renames and logs one
     -- line each.

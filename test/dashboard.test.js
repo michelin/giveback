@@ -828,6 +828,8 @@ describe("re-polling a pull request refreshes what it found", () => {
   // deliberately freezes.
   const conflictAt = source.indexOf('ON CONFLICT (pull_request_id)');
   const conflict = source.slice(conflictAt, source.indexOf('`', conflictAt));
+  // Each for a measured reason, given in the first test below.
+  const FROZEN = ['repository_id', 'dest_repo', 'license', 'topics', 'forks_count', 'stargazers_count'];
 
   test("every column is refreshed on conflict, or deliberately frozen", () => {
     // A pull request is captured the day it is opened and re-read until it reaches a final
@@ -843,8 +845,6 @@ describe("re-polling a pull request refreshes what it found", () => {
     //
     // Anything else missing from DO UPDATE is stale by accident: a merged pull request still
     // reading `open`, a commit count frozen at one. Nothing about that looks wrong on the page.
-    const FROZEN = ['repository_id', 'dest_repo', 'license', 'topics', 'forks_count', 'stargazers_count'];
-
     const written = insert.split(',').map((column) => column.trim()).filter(Boolean);
     const refreshed = written.filter((column) => new RegExp(`\\n\\s*${column} = `).test(conflict));
 
@@ -867,6 +867,19 @@ describe("re-polling a pull request refreshes what it found", () => {
     // Named on its own because it is the figure the dashboard totals now sum, and because the
     // number a pull request carries on the day it opens is rarely the number it is merged with.
     assert.match(conflict, /\n\s*commits_count = EXCLUDED\.commits_count,/);
+  });
+
+  test("the refresh from somebody else's feed freezes the same columns, and who opened it", () => {
+    // A second writer of the same row, with a SET list of its own that the test above never
+    // reads. Its source is a maintainer's hydration: it may name nobody as the author, and it
+    // has no business moving the contribution-time snapshot or the identity.
+    const body = fn(source, 'refreshPullRequest');
+    const set = body.slice(body.indexOf('UPDATE github_pull_requests'), body.search(/\n\s*WHERE\b/));
+    const assigned = [...set.matchAll(/(?:SET|\n)\s*(\w+) = /g)].map((match) => match[1]);
+    const frozen = [...FROZEN, 'opened_by', 'user_type'];
+
+    assert.ok(assigned.includes('state'), 'nothing found in refreshPullRequest - the pattern stopped matching');
+    assert.deepEqual(assigned.filter((column) => frozen.includes(column)), [], 'these are refreshed from somebody else\'s feed');
   });
 });
 

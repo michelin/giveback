@@ -144,12 +144,12 @@
     groupBy: { label: 'repository', of: (row) => row.repo, head: (repo, size) => `${repo} (${fmt.n(size)})` },
     render: renderRow,
     // Which of the two it is matters, and only one of them is about the person. A login GitHub
-    // has renamed since matches nothing here - opened_by is frozen - and telling somebody they
-    // have never contributed when the rows are sitting under their old name is the worst
-    // answer this page could give.
+    // has renamed since, without the bot following the rename, matches nothing here, and
+    // telling somebody they have never contributed when the rows are sitting under their old
+    // name is the worst answer this page could give.
     empty: {
       fact: `No pull request is recorded under ${login}.`,
-      hint: "Pull requests keep the login they were opened with; a renamed account's are under the old name.",
+      hint: "An account renamed without the bot noticing keeps its pull requests under the old name.",
     },
     none: 'No pull request matches these filters.',
   });

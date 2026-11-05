@@ -4,7 +4,7 @@ import { hydrated } from "./context.js";
 import { percentile } from "../../src/utils/percentile.js";
 
 /** The Operations tab's reads, and recording a contribution by hand - one of its two writes - against real SQL. */
-export const register = ({ db, rowsOf, oneRow, enrol, contribute, expireLease }) => {
+export const register = ({ db, rowsOf, oneRow, enrol, contribute, expireLease, lease }) => {
   /** Set columns of one installation, by its login, in SQL relative to the database's clock. */
   const setInstallation = (login, assignments) =>
     rowsOf(`UPDATE github_installations SET ${assignments} WHERE user_login = $1`, [login]);
@@ -338,7 +338,7 @@ export const register = ({ db, rowsOf, oneRow, enrol, contribute, expireLease })
       assert.deepEqual(before.enrolledAt, recorded.created_timestamp);
       assert.equal(before.lastSyncedAt, null);
 
-      await db.installations.markSyncSucceeded(id, { intervalMinutes: 30, delaySeconds: 600, etag: null });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 30, delaySeconds: 600, etag: null });
 
       assert.ok((await db.dashboard.listUsers())[0].lastSyncedAt instanceof Date);
     });

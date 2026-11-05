@@ -161,8 +161,9 @@ least one; this month on pull requests opened. There is no rank before a first m
 The tiles, the chart, the bars and the list all come from **one list**, so they cannot disagree.
 
 An empty tab says **"No pull request is recorded under *login*."**, not "you have not contributed":
-`opened_by` is a frozen login, so a person GitHub has renamed since has their history under the
-old name.
+`opened_by` is a login. A rename the bot sees (the reconciliation, a reinstall or a
+re-enrollment) moves the history to the new one, but a rename it never saw, or one whose old login
+is still on record for somebody else, leaves it under the old name.
 
 ## Overall
 
@@ -186,8 +187,8 @@ depends on who reads it, except two marks the page adds from the reader's own ro
   hand-recorded contribution may lack a date or a commit count; each base says how many could be
   measured.
 - **Awaiting a verdict**: everything still open, by age, then the ten oldest. A pull request whose
-  author is suspended, uninstalled or renamed is never polled again; it is counted as *no longer
-  polled*.
+  author is suspended, uninstalled or renamed without the bot following the rename is never polled
+  again; it is counted as *no longer polled*.
 - **The biggest ones we got into**: the three most-starred projects outside ours with a merged
   pull request, and who got one in. Merged only, and never ours.
 - **Most contributed projects**: the top six on merged pull requests, with their outcomes; the

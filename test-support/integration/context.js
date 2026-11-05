@@ -6,7 +6,7 @@
  * register(ctx) that declares its describe blocks when the file loads. ctx carries the modules
  * under test - `ctx.db`, filled in by the suite's before() once the environment points at the
  * scratch schema - and the helpers that read rows back and seed them: rowsOf, oneRow, enrol,
- * contribute and expireLease.
+ * contribute, expireLease and lease.
  */
 
 /** A hydration response, in the shape upsertPullRequest destructures it. */

@@ -14,15 +14,16 @@
      * token, and each has one job:
      *
      *   11        the variables a setting is read from, monograms - the floor
-     *   12        chips and pills, tooltips, a legend's share, table heads, the footer, the
-     *             build line, the mono lines of the Operations tab
-     *   13        panel subtitles, tile labels and lines, the nameplate's figures, row meta, bar
+     *   12        chips and pills, tooltips, a legend's share, table heads, the footer and the
+     *             build line in it, the mono lines of the Operations tab
+     *   13        panel subtitles, tile labels and lines, row meta, bar
      *             titles and bases, legends, filters, counters, the pager, the hint of an empty
      *             state, table cells
      *   15        body text, panel titles, tabs, row titles, the fact of an empty state
-     *   --fd-1        display 700: the nameplate, above 620px
-     *   --fd-2 / --fd-3  display 700: a tile's value, above and below 620px; the nameplate below
-     *   --fd-4        display 700: the title, the nameplate's figures, the two after a first
+     *   17        the reader's line under their name
+     *   --fd-2 / --fd-3  display 700: a tile's value, above and below 620px; the product's name,
+     *                the reader's login, and the figures in the line under it
+     *   --fd-4        display 700: the title, the two after a first
      *   12px sans    every piece of text on a chart's canvas - its ticks and its axis titles -
      *                set in core.js, since Chart.js draws it; its tooltip and legend are text,
      *                sized above
@@ -86,45 +87,48 @@
 
     /* ---- header ---------------------------------------------------------------- */
 
-    /* This header carries four things - logo, title, heartbeat, sign out - so unlike
-       the enrollment page's it has to space them and wrap. */
-    header.bar { gap: 18px; flex-wrap: wrap; }
+    /* One quiet bar: the product and the reader on the left, then the company's logo and three
+       controls - the heartbeat, the theme and sign out - so unlike the enrollment page's it has
+       to space them and wrap. No rule under it: the tabs' own is the one line above the panels,
+       and a second one a hundred pixels higher only boxed the reader's figures in. */
+    header.bar { gap: 18px; flex-wrap: wrap; padding-bottom: 0; border-bottom: 0; }
 
-    /* Growing into the line beside the logo, from a 180px basis rather than from its widest
-       line: on a phone the title stays beside the logo, its build line wrapping under it, and
-       it is the heartbeat and sign out that go to a line of their own. */
-    .title { flex: 1 1 180px; min-width: 0; font-size: var(--fd-4); }
-
-    /* The build line: the app, its version and where it runs, as fragments a gap apart. */
-    .title small {
+    /* giveback / login, as a path. A phone has no room for it on one line, so there the
+       separator goes and the reader takes the line under the product's name (see the 620px
+       breakpoint): a path broken after its slash reads as a slash left dangling. */
+    .crumbs {
       display: flex;
       flex-wrap: wrap;
-      gap: 0 12px;
-      margin-top: 2px;
-      font-family: var(--mono);
-      font-weight: 400;
-      font-size: var(--fs-12);
-      letter-spacing: 0;
-      color: var(--ink-mute);
+      align-items: center;
+      gap: 6px 14px;
+      min-width: 0;
     }
 
+    .title.brand { flex: none; }
+
+    .crumb-sep {
+      font-family: var(--display);
+      font-size: var(--fd-3);
+      line-height: 1;
+      color: var(--line);
+    }
+
+    /* Pushed right, next to the controls: whose instance this is, said once and quietly. */
+    header.bar img.company { margin-left: auto; }
+
     .bar-right {
-      margin-left: auto;
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 18px;
       font-size: var(--fs-13);
       color: var(--ink-mute);
     }
 
+    /* A dot and a word, not a pill: an indicator, so it has no edge a control would have. */
     .heartbeat {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 4px 12px;
-      border: 1px solid var(--line);
-      border-radius: var(--pill);
-      background: var(--panel);
     }
 
     .heartbeat i {
@@ -136,7 +140,7 @@
     }
 
     .heartbeat.stale i { background: var(--fail); animation: none; }
-    .heartbeat.stale { border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+    .heartbeat.stale { color: var(--fail); }
 
     @keyframes beat {
       0%   { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0.55); }
@@ -144,96 +148,133 @@
       100% { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0); }
     }
 
+    /* An icon at rest, the round edge of a control once it is pointed at. The icon is the theme
+       it brings - the sun on the dark page, the moon on the light one. Drawn at 32px, and 44px
+       to a finger or a pointer: ::before widens what it answers to, as every control on the page
+       is at least that. */
+    .theme-toggle {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      color: var(--ink-dim);
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: color var(--m-150), border-color var(--m-150);
+    }
+
+    .theme-toggle::before { content: ''; position: absolute; inset: -6px; }
+
+    .theme-toggle:hover { color: var(--ink); border-color: var(--line); }
+    .theme-toggle:focus-visible { outline: 2px solid var(--sync); outline-offset: 2px; }
+
+    .theme-toggle svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .theme-toggle[aria-pressed="true"] .sun,
+    .theme-toggle[aria-pressed="false"] .moon { display: none; }
+
     a.plain { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
     a.plain:hover { color: var(--ink); border-bottom-color: var(--sync); }
 
-    /* ---- the nameplate ------------------------------------------------------------ */
+    /* ---- the reader ------------------------------------------------------------ */
 
-    /* The reader's own line, above the tabs and the same on each, in two tiers: a nameplate,
-     * then a reading. A reader's own login may take the display size - the page's precedent is
-     * the top three, which sets a repository's name that large because the panel exists to
-     * celebrate it. Everything measured drops to one quiet row underneath, which is what keeps
-     * the first tier a nameplate and not a headline. Groups in that row are separated by space,
-     * never by punctuation.
-     */
-    .you {
+    /* The reader's face and login, after the product's name and at its size: a path, not a
+       second heading. */
+    .nameplate {
       display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    /* One size for both words, and colour is the only thing that separates them: the label is
-       ink, the name is the one saturated thing above the tabs. --now is the colour of the due
-       line every figure is measured against, which is the right borrow for the person being
-       measured. */
-    .you .nameplate {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0 12px;
+      align-items: center;
+      gap: 0 10px;
+      min-width: 0;
       margin: 0;
       font-family: var(--display);
       font-weight: 700;
-      font-size: var(--fd-1);
-      line-height: 1.05;
-      letter-spacing: -0.025em;
+      font-size: var(--fd-3);
+      line-height: 1;
+      letter-spacing: -0.02em;
     }
 
-    .you .who { color: var(--now); overflow-wrap: anywhere; }
+    .nameplate .who {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    /* The reader's login, and their rank in the line under it, over a felt-tip stroke across the
+       lower part of the letters, in the blue that marks the reader everywhere else: the `you`
+       chip, the tinted row that is theirs. Not the yellow: in it the name outshouted the figures
+       under it, and the yellow is the stars' and the NOW line's. Blue also holds on the dark
+       ground, where a yellow stroke weak enough to keep white letters readable turns olive. Half
+       strength in both themes: the ink reads at 6.8:1 over it on the dark page and better on
+       the light one. The stroke's slanted ends are inside the padding, so the margin keeps the
+       letters where they were. */
+    .nameplate .who,
+    .you .place {
+      padding: 0 0.1em;
+      margin: 0 -0.1em;
+      /* A felt tip lays its ink unevenly: full at the ends, thinner through the middle. */
+      background: linear-gradient(100deg,
+          transparent 0.5%,
+          color-mix(in srgb, var(--sync) 50%, transparent) 2.5%,
+          color-mix(in srgb, var(--sync) 39%, transparent) 45%,
+          color-mix(in srgb, var(--sync) 50%, transparent) 88%,
+          transparent 99%)
+        0 calc(100% - 0.04em) / 100% 0.38em no-repeat;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
 
     /* A role, not a measurement: the operator already knows they are one, so the chip is the
-       quietest thing on the line - neutral like the heartbeat pill, out of the display face, and
-       centred on the login as the face is. */
-    .you .operator {
-      align-self: center;
-      margin-left: 0;
+       quietest thing on the line - neutral, out of the display face. */
+    .nameplate .operator {
+      margin-left: 2px;
       font-family: var(--sans);
       font-weight: 400;
       letter-spacing: 0;
       line-height: 1.6;
-      color: var(--ink-dim);
+      color: var(--ink-mute);
       border-color: var(--line);
     }
 
-    /* The face, at the size of the type beside it and centred on the line rather than left on
-       its baseline: a circle whose bottom edge is the baseline rides up past the cap height. */
-    #you-face { display: flex; align-self: center; }
+    #you-face { display: flex; }
 
+    /* What the reader has landed, said in one sentence on the line under their name, the same
+       on every tab. Larger than body text and the figures in the display face, so it holds its
+       own above the tiles without being one more row of boxes. */
     .you .figs {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 4px 22px;
       margin: 0;
-      font-size: var(--fs-13);
-      color: var(--ink-mute);
+      font-size: var(--fs-17);
+      line-height: 1.5;
+      color: var(--ink-dim);
+      /* On a narrow screen it wraps; it should not leave its last word alone on a line. */
+      text-wrap: pretty;
     }
 
     .you .figs:empty { display: none; }
 
-    .you .figs > span { white-space: nowrap; }
-
-    /* The display face on the reader's own figures, and nothing else in the row. */
     .you .figs b {
-      margin-right: 4px;
+      margin: 0 0.1em;
       font-family: var(--display);
       font-weight: 700;
-      font-size: var(--fd-4);
+      font-size: var(--fd-3);
       letter-spacing: -0.01em;
       color: var(--ink);
     }
 
-    /* Green, like every merge the job cards count: a merge is the one figure here somebody
-       outside decided. */
-    .you .figs b.landed { color: var(--ok); }
-
     /* ---- tabs -------------------------------------------------------------------- */
 
-    /* No margin of its own: the shell's gap puts it as far from the nameplate as from the panel
-       it controls. */
+    /* No margin of its own: the shell's gap puts it as far from the reader's figures as from the
+       panel it controls. */
     .tabs {
       display: flex;
       gap: 4px;
@@ -311,6 +352,7 @@
       background: var(--panel);
       border: 1px solid var(--line-soft);
       border-radius: var(--radius);
+      box-shadow: var(--lift);
       padding: 16px 18px;
     }
 
@@ -372,7 +414,7 @@
     .tile small > span,
     .tile dd > .sub > span { min-width: 0; }
 
-    .tile.late .v { color: var(--now); }
+    .tile.late .v { color: var(--now-ink); }
 
     /* A place and what it is out of, on one line: "8th of 42", the place in the tile's tint. */
     .tile.inline .v { display: inline; color: var(--tint); }
@@ -381,9 +423,28 @@
 
     .tile.zero .v { color: var(--ink-mute); }
 
-    /* A project's stars, the one figure of Overall set in the loud colour: a design choice, and
-       the one use of it that is not relative to now. */
-    .stars { color: var(--now); font-weight: 600; }
+    /* A project's stars, the one figure of Overall in the loud colour: a design choice, and the
+       one use of it that is not relative to now. Navy figures on a full felt-tip stroke of the
+       logo's yellow, the same in both themes: yellow text could not be read on the light ground,
+       and navy on the yellow reads at 11.6:1 on either. The stroke's ends sit in the padding,
+       pulled back by the margin so the figure stays in line with the name above it. */
+    .stars {
+      color: var(--on-now);
+      font-weight: 600;
+      padding: 0 0.3em;
+      margin: 0 0.05em 0 -0.3em;
+      /* The ink load varies in lightness rather than opacity, so the ground never shows through:
+         a see-through yellow on the dark panel is olive. */
+      background: linear-gradient(100deg,
+          transparent 0.4%,
+          var(--now) 2.2%,
+          color-mix(in srgb, var(--now), white 30%) 45%,
+          var(--now) 96%,
+          transparent 99.5%)
+        0 calc(100% - 0.1em) / 100% 1.02em no-repeat;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
 
     /* ---- charts ------------------------------------------------------------------ */
 
@@ -794,9 +855,9 @@
 
     @media (max-width: 620px) {
       .shell { padding: 20px 16px 40px; }
-      .bar-right { margin-left: 0; }
+      .crumb-sep { display: none; }
+      .crumbs { flex-direction: column; align-items: flex-start; }
       .tile .v { font-size: var(--fd-3); }
-      .you .nameplate { font-size: var(--fd-2); }
       .footnote dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
       .footnote dd + dt { margin-top: 8px; }
     }

@@ -63,6 +63,10 @@ main.panel.tone-fail { --tone: var(--fail); }
    on purpose; here it IS the message. */
 h1.title { font-size: 1.6rem; line-height: 1.2; }
 
+/* The verdict on the left, the company's logo on the right, its top on the eyebrow's line. */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.head img.company { height: 22px; margin-top: 4px; flex: none; }
+
 /* The dashboard's .callout, widened for prose: same ground, same left rule, but the sans
    face and a longer measure, because this is the one paragraph on the page that has to be
    read rather than scanned. */
@@ -160,7 +164,7 @@ a.cta {
   margin-top: 28px;
   padding: 11px 26px;
   background: var(--sync);
-  color: var(--ground);
+  color: var(--on-hue);
   border-radius: var(--pill);
   font-size: var(--fs-15);
   font-weight: 500;
@@ -168,7 +172,8 @@ a.cta {
   transition: background 0.15s ease;
 }
 
-a.cta:hover { background: #6ba7ff; }
+/* A step towards the ink: lighter on the dark page, deeper on the light one. */
+a.cta:hover { background: color-mix(in srgb, var(--sync), var(--ink) 22%); }
 
 /* margin-top:auto and the shell's min-height put the footer on the bottom edge of a short
    page, and directly under the panel on a long one. */

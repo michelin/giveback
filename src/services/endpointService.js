@@ -4,6 +4,7 @@ import { getLogger, format, fields } from "../utils/logger.js";
 import { ALLOWED_EMAIL_DOMAINS } from "../utils/constants.js";
 import { pickEnrollmentEmail, formatAllowedEmailDomains } from "../utils/email.js";
 import { enrollmentPage } from "../utils/enrollmentPages.js";
+import { THEMES, themeOf } from "../utils/theme.js";
 import { InstallationEvent } from "../utils/types.js";
 
 const logger = getLogger("endpointService");
@@ -139,7 +140,11 @@ export async function handleGetCallback(req, res) {
  * an unknown value falls back to the neutral page.
  */
 export function handleGetEnroll(req, res) {
+  const theme = themeOf(req);
+
   res.render("enroll", {
     page: enrollmentPage(req.query.reason, formatAllowedEmailDomains()),
+    theme,
+    themeColor: THEMES[theme].ground,
   });
 }

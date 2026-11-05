@@ -33,13 +33,15 @@ describe("both pages are identifiable in a tab", () => {
     }
   });
 
-  test("and the heading on the page says the same thing as the tab", () => {
-    // The rename moved the route and the <title> and left the <h1> saying "Bot status",
+  test("and the heading on the page is the name the tab ends with", () => {
+    // A rename once moved the route and the <title> and left the <h1> saying "Bot status",
     // which is the one of the three a reader actually looks at. Nothing caught it: the tab
-    // title had a test, the heading did not.
-    const heading = markup().match(/<h1 class="title">\s*([^<\n]+)/)[1].trim();
+    // title had a test, the heading did not. The heading is now the product's name, beside
+    // its mark, and the tab says which of its pages this is before it.
+    const heading = markup().match(/<h1 class="title brand">\s*<img src="\/favicon\.svg" alt="">([^<\n]+)/)[1].trim();
 
-    assert.equal(heading, 'Dashboard');
+    assert.equal(heading, 'giveback');
+    assert.match(markup().match(/<title>(.*?)<\/title>/)[1], new RegExp(` · ${heading}$`));
     assert.doesNotMatch(markup(), /Bot status/i, 'the page is not called that any more');
   });
 
@@ -565,7 +567,7 @@ describe("the one loud colour is kept for what is relative to now", () => {
   // against. One exception, by design choice: a project's stars, which are not relative to now.
   // Nothing else - and never in the two sheets of the tabs that are about the past. The idle grey
   // is a colour for graphics: as text it fails contrast.
-  const NOW = [/^\.tile\.late \.v$/, /^\.legend b\.q-ring$/, /(^|\s)\.job-tick\b/, /\bnow\b/i, /^\.you \.who$/, /^\.stars$/];
+  const NOW = [/^\.tile\.late \.v$/, /^\.legend b\.q-ring$/, /(^|\s)\.job-tick\b/, /\bnow\b/i, /^\.stars$/];
 
   test("on a chart, which paints it on the overdue segment alone", async () => {
     const run = await runPage(operatorSnapshotOf(), undefined, { mine: mineOf(), report: reportOf() });
@@ -709,30 +711,63 @@ describe("what was removed stays removed", () => {
   }
 });
 
-describe("the nameplate stands above the tabs, for every reader", () => {
-  // The nameplate: the face, the login in the one loud colour, and one row of what they have
-  // landed - drawn from their own rows, which the page is seeded with, and never from the
-  // snapshot read every five seconds.
+describe("the reader is named in the header, and what they landed sits above the tabs", () => {
+  // The header reads as a path - giveback / login - and the figures take the line under it,
+  // the same on every tab: drawn from the reader's own rows, which the page is seeded with, and
+  // never from the snapshot read every five seconds.
   for (const [who, snapshot] of [['a reader', snapshotOf()], ['an operator', operatorSnapshotOf()]]) {
     test(`for ${who}`, async () => {
       const mine = mineOf();
       const html = await renderPage(snapshot, { mine, report: reportOf() });
+      const header = html.slice(html.indexOf('<header class="bar">'), html.indexOf('</header>'));
       const at = html.indexOf('<section class="you" id="you"');
 
-      assert.equal(html.split('class="you"').length, 2, 'exactly one nameplate');
+      assert.match(header, /<h1 class="title brand"><img src="\/favicon\.svg" alt="">giveback<\/h1>\s*<span class="crumb-sep" aria-hidden="true">\/<\/span>\s*<p class="nameplate">/,
+        'the product, then the reader, as a path');
+      assert.ok(header.includes(`<span id="you-face"></span><span class="who">${snapshot.viewer}</span>`), 'the login, from the first paint');
+      assert.equal(html.split('class="you"').length, 2, 'exactly one line of figures');
       assert.ok(html.indexOf('</header>') < at && at < html.indexOf('<nav>'), 'between the header and the tabs');
       assert.ok([...html.matchAll(/role="tabpanel"/g)].every((match) => match.index > at), 'outside every tab');
-      assert.ok(html.includes(`<span id="you-face"></span><span class="who">${snapshot.viewer}</span>`), 'the login, from the first paint');
       assert.equal(JSON.parse(/id="seed-mine">([\s\S]*?)<\/script>/.exec(html)[1]).login, mine.login, 'seeded with their rows');
 
       const { elements, errors } = await runPage(snapshot, undefined, { mine, report: reportOf(), drainIntervals: false });
 
       assert.deepEqual(errors, []);
-      assert.match(elements.get('you-face').innerHTML, /<img class="avatar" style="--size: 46px"/);
-      assert.equal(elements.get('you-figs').innerHTML, '<span><b class="landed">3</b> merged</span>'
-        + '<span><b>4th</b> of 41 who have ever landed one</span>');
+      assert.match(elements.get('you-face').innerHTML, /<img class="avatar" style="--size: 28px"/);
+      assert.equal(elements.get('you-figs').innerHTML,
+        'You have landed <b>3</b> pull requests, <b class="place">4th</b> of the 41 people who ever landed one.');
     });
   }
+
+  test("as one sentence that stays right whatever the reader has", async () => {
+    // Singular and plural, a part left out when there is nothing to say, and no zero set as a
+    // figure: a reader with nothing merged is told so in words.
+    const lineFor = async ({ merged, open, ever }) => {
+      const mine = mineOf({ rank: { ever, month: null } });
+
+      mine.summary = { ...mine.summary, merged, open };
+      const { elements, errors } = await runPage(snapshotOf(), undefined, { mine, report: reportOf(), drainIntervals: false });
+
+      assert.deepEqual(errors, []);
+
+      return elements.get('you-figs').innerHTML;
+    };
+    const third = { position: 3, of: 41 };
+
+    assert.equal(await lineFor({ merged: 8, open: 1, ever: third }),
+      'You have landed <b>8</b> pull requests, <b class="place">🥉 3rd</b> of the 41 people who ever landed one, and <b>1</b> is still open.');
+    assert.equal(await lineFor({ merged: 1, open: 2, ever: third }),
+      'You have landed <b>1</b> pull request, <b class="place">🥉 3rd</b> of the 41 people who ever landed one, and <b>2</b> are still open.');
+    assert.equal(await lineFor({ merged: 3, open: 0, ever: { position: 1, of: 1 } }),
+      'You have landed <b>3</b> pull requests, the only person to have landed one so far.');
+    assert.equal(await lineFor({ merged: 2, open: 1, ever: null }),
+      'You have landed <b>2</b> pull requests, and <b>1</b> is still open.');
+    assert.equal(await lineFor({ merged: 0, open: 1, ever: null }),
+      'Nothing landed yet, and <b>1</b> pull request is still open.');
+    assert.equal(await lineFor({ merged: 0, open: 3, ever: null }),
+      'Nothing landed yet, and <b>3</b> pull requests are still open.');
+    assert.equal(await lineFor({ merged: 0, open: 0, ever: null }), 'Nothing landed yet.');
+  });
 
   test("with an operator chip for an operator, and for nobody else", async () => {
     const CHIP = '<span class="chip operator">operator</span>';
@@ -741,13 +776,28 @@ describe("the nameplate stands above the tabs, for every reader", () => {
     assert.ok(!(await renderPage(snapshotOf())).includes('class="chip operator"'));
   });
 
-  test("in the display face, the login in --now", () => {
+  test("with the build line in the footer, not in the header", async () => {
+    const html = await renderPage(snapshotOf());
+
+    assert.ok(html.indexOf('id="app-line"') > html.indexOf('<footer>'));
+  });
+
+  test("in the display face at the product's size, the login in ink over a blue felt-tip stroke", () => {
+    // Blue, the colour of the `you` chip and of the reader's rows, and one rule for both themes.
     const rules = rulesOf(read('views/dashboard/core.css'));
+    const who = rules.filter((rule) => selectorsOf(rule).some((selector) => /\.who\b/.test(selector)));
     const declared = (selector) => Object.fromEntries(rules.filter((rule) => selectorsOf(rule).includes(selector))
       .flatMap((rule) => rule.declarations.map(({ property, value }) => [property, value])));
 
-    assert.equal(declared('.you .nameplate')['font-family'], 'var(--display)');
-    assert.equal(declared('.you .who').color, 'var(--now)');
+    assert.equal(declared('.nameplate')['font-family'], 'var(--display)');
+    assert.equal(declared('.nameplate')['font-size'], 'var(--fd-3)', 'the size of the product\'s name');
+    assert.equal(declared('.nameplate .who').color, 'var(--ink)');
+    assert.match(declared('.nameplate .who').background, /var\(--sync\)/);
+    assert.doesNotMatch(declared('.nameplate .who').background, /var\(--now\)/);
+    assert.deepEqual(who.filter((rule) => /data-theme/.test(rule.selector)).map((rule) => rule.selector), [],
+      'a rule that draws the login differently in one theme');
+    assert.ok(selectorsOf(rules.find((rule) => selectorsOf(rule).includes('.nameplate .who') && rule.declarations.some(({ property }) => property === 'background')))
+      .includes('.you .place'), 'the rank in the line under it takes the same stroke');
   });
 });
 

@@ -110,30 +110,36 @@
   };
 
   /**
-   * The nameplate's one row, from the reader's own rows: what they have merged, where that
-   * puts them since day one, and what is still open. The same read the Me tab is drawn from,
-   * seeded with the page, so it costs the snapshot nothing; unread, the row waits empty. No
-   * zero in the display face: a 0 set like a measurement reads as one.
+   * The reader's line, under their name, from their own rows: one sentence saying what they
+   * have merged, where that puts them since day one, and what is still open. A sentence rather
+   * than three labelled figures: the tiles under it measure, this line speaks to the reader, and
+   * it says who the rank's denominator counts, which a bare "2nd of 17" leaves open. The same
+   * read the Me tab is drawn from, seeded with the page, so it costs the snapshot nothing;
+   * unread, the line waits empty. No zero in the display face: a 0 set like a measurement reads
+   * as one, so a reader with nothing merged is told so in words.
    */
-  const nameplate = () => {
+  const yourLine = () => {
     const { data } = Dash.data.peek('mine');
-    const { merged, open } = data?.summary ?? {};
+    const { merged = 0, open = 0 } = data?.summary ?? {};
     const ever = data?.rank?.ever;
-    const figures = data ? [
-      merged > 0 ? `<b class="landed">${fmt.n(merged)}</b> merged` : 'nothing landed yet',
-      // Written as a sentence: it says who the denominator counts, which a bare "2nd of 17" leaves open.
-      ever && `<b>${fmt.place(ever.position)}</b> of ${fmt.n(ever.of)} who have ever landed one`,
-      open > 0 && `<b>${fmt.n(open)}</b> open`,
-    ].filter(Boolean) : [];
+    const pulls = (count) => `<b>${fmt.n(count)}</b> ${count === 1 ? 'pull request' : 'pull requests'}`;
+    const isOpen = (count) => `${count === 1 ? 'is' : 'are'} still open`;
+    const rank = !ever ? null
+      : ever.of === 1 ? 'the only person to have landed one so far'
+        : `<b class="place">${fmt.place(ever.position)}</b> of the ${fmt.n(ever.of)} people who ever landed one`;
+    const landed = [`You have landed ${pulls(merged)}`, rank].filter(Boolean).join(', ');
+    const line = !data ? ''
+      : merged > 0 ? (open > 0 ? `${landed}, and <b>${fmt.n(open)}</b> ${isOpen(open)}.` : `${landed}.`)
+        : open > 0 ? `Nothing landed yet, and ${pulls(open)} ${isOpen(open)}.` : 'Nothing landed yet.';
 
-    Dash.dom.swap($('you-figs'), figures.map((figure) => `<span>${figure}</span>`).join(''));
+    Dash.dom.swap($('you-figs'), line);
   };
 
   /** A tab drawn from its own reads: each asked again if its window is over, then drawn. */
   const follow = async (key) => {
     await Promise.all(SOURCES[key].reads.map((name) => Dash.data.load(name)));
 
-    nameplate();
+    yourLine();
 
     // Outside any try, after the read settled: a throw here is a bug in the tab, and it has to
     // reach the console rather than be taken for a failed read.
@@ -271,9 +277,25 @@
     }
   });
 
-  Dash.dom.swap($('app-line'), Dash.ui.fragments([`${snapshot.app.name} v${snapshot.app.version}`, snapshot.app.environment].map(Dash.esc)));
-  Dash.dom.swap($('you-face'), Dash.marks.face(snapshot.viewer, 46));
-  nameplate();
+  // The build line, in the footer: the version and where it runs. The header names the product.
+  Dash.dom.swap($('app-line'), Dash.ui.fragments([`v${snapshot.app.version}`, snapshot.app.environment].map(Dash.esc)));
+
+  // The theme button. Every tab learns the theme changed, for what it painted from the tokens
+  // itself, and the tab on screen is drawn again; a tab shown later is drawn on selection anyway.
+  $('theme-toggle').addEventListener('click', (event) => {
+    const light = event.currentTarget.getAttribute('aria-pressed') !== 'true';
+
+    Dash.theme(light ? 'light' : 'dark');
+    event.currentTarget.setAttribute('aria-pressed', String(light));
+
+    for (const hooks of Dash.tabs.values()) {
+      hooks.theme?.();
+    }
+
+    Dash.tabs.get(active).render();
+  });
+  Dash.dom.swap($('you-face'), Dash.marks.face(snapshot.viewer, 28));
+  yourLine();
 
   // A tab named in the address wins, if this reader has it; anything else - a stale link, a
   // reader's #ops - falls back to where the server opened the page, and the address is corrected.

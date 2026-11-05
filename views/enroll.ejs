@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<%# locals.theme: a template rendered without one, as the tests do, is in the default theme. %>
+<html lang="en" data-theme="<%= locals.theme === 'light' ? 'light' : 'dark' %>">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#080c17">
+  <meta name="theme-color" content="<%= locals.themeColor ?? '#080c17' %>">
   <title><%= page.title %> · giveback</title>
 
   <%# The contribution heart, from public/favicon.svg. SVG only: a browser that cannot read one
@@ -26,8 +27,9 @@
 </head>
 <body>
   <div class="shell">
+    <%# The product's name in the header, as on the dashboard; the company's logo is in the card. %>
     <header class="bar">
-      <img src="/images/company_logo.svg" alt="Company logo">
+      <p class="brand"><img src="/favicon.svg" alt="">giveback</p>
     </header>
 
     <%#
@@ -35,8 +37,17 @@
       is - the reader's to fix, nobody's, or ours - before a single sentence has been read.
     %>
     <main class="panel tone-<%= page.tone %>">
-      <p class="eyebrow"><%= page.eyebrow %></p>
-      <h1 class="title"><%= page.title %></h1>
+      <%#
+        The company's logo beside the verdict: the page is about being recognised as one of its
+        employees, so whose check this is belongs with the title.
+      %>
+      <div class="head">
+        <div>
+          <p class="eyebrow"><%= page.eyebrow %></p>
+          <h1 class="title"><%= page.title %></h1>
+        </div>
+        <img class="company" src="/images/company_logo.svg" alt="Company logo">
+      </div>
 
       <%#
         Unescaped on purpose: the copy carries links and emphasis, and every string comes

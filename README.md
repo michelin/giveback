@@ -133,7 +133,9 @@ Going to production? Read [docs/deployment.md](docs/deployment.md).
 
 These changes are cosmetic and none of them changes behaviour:
 
-- `public/images/company_logo.svg`: your own SVG wordmark, shown 26 px high in every page header.
+- `public/images/company_logo.svg`: your own SVG wordmark, drawn for a dark background, shown
+  20 px high beside the header's controls. The light theme sets it in a single dark ink, so a
+  one-colour logo works in both.
 - `app.yml`: `name`, `description`, `url`.
 - `package.json`: `name`, `description`.
 - `views/enroll.ejs` (page `<title>` and footer link) and `views/dashboard.ejs` (`<title>`).

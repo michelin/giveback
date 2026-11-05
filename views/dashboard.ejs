@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="<%= theme %>">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#080c17">
+  <meta name="theme-color" content="<%= themeColor %>">
   <title>Dashboard · giveback</title>
 
   <%# The contribution heart, from public/favicon.svg. SVG only: a browser that cannot read one
@@ -36,21 +36,34 @@
 <body>
   <div class="shell">
     <header class="bar">
-      <img src="/images/company_logo.svg" alt="Company logo">
       <%#
-        "Dashboard", not "Bot dashboard": the company logo sits to its left and #app-line
-        below it already reads "giveback v1.0.0", so a second mention of the app in
-        the heading would be the third on one line.
+        The product, then whose view of it this is, written as a path - giveback / login, the way
+        the forge writes owner / repository - so the two names read as one thing rather than two
+        headings stacked in a column. The company's logo sits on the right, by the controls. The
+        name is here from the first paint, and so is the chip that says this reader has the
+        operator tier; main.js draws the face.
       %>
-      <h1 class="title">
-        Dashboard
-        <small id="app-line">—</small>
-      </h1>
+      <div class="crumbs">
+        <h1 class="title brand"><img src="/favicon.svg" alt="">giveback</h1>
+        <span class="crumb-sep" aria-hidden="true">/</span>
+        <p class="nameplate"><span id="you-face"></span><span class="who"><%= snapshot.viewer %></span><% if (snapshot.operator) { %><span class="chip operator">operator</span><% } %></p>
+      </div>
+      <img class="company" src="/images/company_logo.svg" alt="Company logo">
 
       <div class="bar-right">
         <span class="heartbeat" id="heartbeat" title="Time since the last successful read">
           <i></i><span id="heartbeat-text">live</span>
         </span>
+        <%#
+          A toggle, pressed when the page is light. Both icons are in the markup and the theme
+          shows one: the sun on the dark page, where pressing it brings the light, the moon on
+          the light one. main.js switches it, and the server already rendered the reader's choice.
+        %>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Light theme"
+                title="Light theme" aria-pressed="<%= theme === 'light' %>">
+          <svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></svg>
+          <svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.6 12.4A7 7 0 0 1 7.6 3.4a7 7 0 1 0 9 9Z"/></svg>
+        </button>
         <a class="plain" href="/dashboard/logout">sign out</a>
       </div>
     </header>
@@ -58,13 +71,10 @@
     <div class="notice" id="notice" role="status"></div>
 
     <%#
-      The reader's own line, above the tabs and the same on every one of them: their face and
-      their login, then what they have landed. main.js draws the face and the figures, from the
-      rows the Me tab is drawn from; the name is here from the first paint, and so is the chip
-      that says this reader has the operator tier.
+      What the reader has landed, under their name and above the tabs, the same on every one of
+      them. main.js draws it from the rows the Me tab is drawn from.
     %>
     <section class="you" id="you" aria-label="You">
-      <p class="nameplate"><span id="you-face"></span><span class="who"><%= snapshot.viewer %></span><% if (snapshot.operator) { %><span class="chip operator">operator</span><% } %></p>
       <p class="figs" id="you-figs"></p>
     </section>
 
@@ -91,6 +101,7 @@
     <%- include('dashboard/footnote') %>
 
     <footer>
+      <span id="app-line"></span>
       <% if (snapshot.operator) { %>
       <span id="f-uptime"></span>
       <span id="f-rev"></span>

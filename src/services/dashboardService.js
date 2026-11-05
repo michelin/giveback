@@ -16,6 +16,7 @@ import {
   isOperator,
 } from "./dashboardAuth.js";
 import { getLogger, format, fields } from "../utils/logger.js";
+import { THEMES, themeOf } from "../utils/theme.js";
 import { ALLOWED_EMAIL_DOMAINS, OWN_GITHUB_ORGS, PERCENTILE_MIN_SAMPLE } from "../utils/constants.js";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -129,11 +130,13 @@ const footnoteOf = (report) => ({
  *
  * Pure, and exported so the page tests render the document from this very assembly: a copy of
  * it in the harness would be a second opinion on which tabs a reader is sent.
- * @param {{snapshot: Object, landing: string, mine?: ?Object, report?: ?Object}} read
+ * @param {{snapshot: Object, landing: string, mine?: ?Object, report?: ?Object, theme?: string}} read
  */
-export const pageLocals = ({ snapshot, landing, mine = null, report = null }) => ({
+export const pageLocals = ({ snapshot, landing, mine = null, report = null, theme = 'dark' }) => ({
   snapshot,
   landing,
+  theme,
+  themeColor: THEMES[theme].ground,
   tabs: LANDING_TABS[snapshot.operator ? 'operator' : 'reader'],
   assets: assetsFor(snapshot.operator),
   // Every reader's own rows whichever tab the page opens on, since the nameplate above the tabs
@@ -197,7 +200,7 @@ export async function handleGetDashboard(req, res) {
 
   // Outside any try: a template error is a bug in this app, and belongs to the 500 handler, not
   // to a 503 that blames the database.
-  res.render("dashboard", pageLocals({ snapshot, landing, mine, report }));
+  res.render("dashboard", pageLocals({ snapshot, landing, mine, report, theme: themeOf(req) }));
 }
 
 /** Serve the snapshot the page polls. */

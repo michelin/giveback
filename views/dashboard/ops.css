@@ -28,6 +28,7 @@
       background: var(--panel);
       border: 1px solid var(--line-soft);
       border-radius: var(--radius);
+      box-shadow: var(--lift);
     }
 
     :where(#view-ops) .job[data-state="failing"] { border-color: color-mix(in srgb, var(--fail) 45%, transparent); }
@@ -221,7 +222,7 @@
     :where(#view-ops) .track-tip > * { display: block; }
     :where(#view-ops) .track-tip b { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
     :where(#view-ops) .track-tip i { font-style: normal; color: var(--ink-mute); }
-    :where(#view-ops) .track-tip .now { color: var(--now); }
+    :where(#view-ops) .track-tip .now { color: var(--now-ink); }
     :where(#view-ops) .track-tip .bad { color: var(--fail); }
 
     /* The key to the track, in the tokens its canvas reads: a ring is a claim, held right now. */
@@ -434,8 +435,8 @@
     :where(#view-ops) .paste .grow { flex: 1 1 320px; min-width: 0; }
 
     /* The button wears the colour of the forge it writes to, so the active path is legible even
-       to somebody who has forgotten which control they last touched. Its ink is the one place
-       a literal stands in for a token: a near-black no token names, for text on a hue. */
+       to somebody who has forgotten which control they last touched. Its ink is --on-hue, a
+       near-black on the dark page and white on the light one. */
     :where(#view-ops) button.record {
       min-height: 44px;
       padding: 0 16px;
@@ -443,7 +444,7 @@
       font-size: var(--fs-13);
       font-weight: 500;
       white-space: nowrap;
-      color: #04101f;
+      color: var(--on-hue);
       background: var(--sync);
       border: 0;
       border-radius: var(--r-10);

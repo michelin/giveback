@@ -112,8 +112,10 @@ The address wins when it names a tab this reader has: `#mine`, `#collective`, `#
 falls back to where the server opened the page. Switching tabs rewrites the hash with
 `replaceState`, so a reload or a shared link opens the same tab and Back leaves the page.
 
-Above the tabs, every reader sees their own avatar, login, merged count, rank and open count, drawn
-from their own rows.
+The header names the product and the reader as a path, *giveback / login*, with their avatar.
+Under it, above the tabs, one sentence tells every reader what they have merged, their rank
+among everyone who ever landed one, and what is still open, drawn from their own rows. The
+version and the environment it runs in are in the footer.
 
 ## Conventions every tab follows
 
@@ -133,6 +135,23 @@ is the footnote's to say, once. `test/dashboard-page.test.js` holds every tab to
   fill it; a tab still loading is busy (`aria-busy`), never empty.
 - **English only**, one format per kind: *Sep 14, 2026*, *3 d 2 h*, *2,840*. Months and days are
   cut in UTC.
+
+## Light and dark
+
+The page is dark unless the reader picks light, with the sun or moon button left of
+*sign out*. The choice is kept for a year in the `oss_dashboard_theme` cookie, which the page
+writes itself (`Path=/`, not signed: it holds `light` or `dark` and nothing else). The server
+reads it (`src/utils/theme.js`) and renders `<html data-theme>`, so a page opens in the reader's
+theme from its first paint, and the enrollment page, which runs no script and has no button,
+follows the same choice.
+
+Both palettes are the tokens of `public/base.css`: the dark one at the top, the light one (*Fog*)
+in the block after it, which redefines colours only. The yellow is the logo's in both, and never
+text on the light page: what it colours on the dark one (a late tile's figure, the queue's labels)
+is set in ink through `--now-ink`. Two marks are the same in both themes: your login, in ink over
+a felt-tip stroke in the blue that marks you everywhere else (the `you` chips, your rows), and a
+project's stars on Overall, navy figures on a felt-tip stroke of the yellow (`--on-now`). The
+charts and the queue's canvas read the tokens and are drawn again when the button is pressed.
 
 ## Me
 
@@ -314,7 +333,9 @@ beside its base, and a chart leaves a gap rather than drawing a zero.
   region.
 - **Lists longer than ten rows** are paged with *Previous* and *Next*, named and described by the
   range shown.
-- **Every control** is at least 44 px tall and shows a focus ring.
+- **Every control** is at least 44 px tall and shows a focus ring. The theme button is drawn
+  smaller, and answers to 44 px.
+- **The theme button** is a toggle, named *Light theme* and pressed when the page is light.
 
 ## How it stays current
 
@@ -330,8 +351,8 @@ The document opens with the first snapshot and the reader's own rows embedded as
 never opens empty. Filters, grouping, page and sort survive every refresh, and a refresh that
 changes nothing writes nothing to the page. With reduced motion asked for, nothing animates.
 
-The header badge gives the age of the read behind the tab showing. A banner names a read that
-failed, leaving the last good figures on screen. A `401` from anywhere stops every loop and turns
+The heartbeat in the header gives the age of the read behind the tab showing. A banner names a
+read that failed, leaving the last good figures on screen. A `401` from anywhere stops every loop and turns
 the banner into *Session expired*, with a link to sign in.
 
 ## What it can change

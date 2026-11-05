@@ -130,10 +130,20 @@ const classesOf = (names = '') => {
 
 /**
  * The palette the page's canvas reads through getComputedStyle, from the one sheet that defines
- * it: a token the track asks for and base.css does not have answers the empty string, as a
- * browser's would.
+ * it, per theme: the light theme is the default block with its own block over it. A token the
+ * track asks for and base.css does not have answers the empty string, as a browser's would.
  */
-const TOKENS = new Map([...read('public/base.css').matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2].trim()]));
+const blockOf = (selector) => {
+  const source = read('public/base.css');
+  const start = source.indexOf(`${selector} {`);
+
+  return source.slice(start, source.indexOf('\n}', start));
+};
+const tokensIn = (block) => [...block.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2].trim()]);
+export const TOKENS = Object.freeze({
+  dark: new Map(tokensIn(blockOf(':root'))),
+  light: new Map([...tokensIn(blockOf(':root')), ...tokensIn(blockOf(':root[data-theme="light"]'))]),
+});
 
 /** data-next-run="x" as dataset.nextRun, the way a browser maps it. */
 const datasetOf = (attributes) => Object.fromEntries(Object.entries(attributes)
@@ -202,9 +212,13 @@ const stubDom = (html, snapshot, { size, report, mine, manual, hash, reducedMoti
     set: (target, prop, value) => { target[prop] = value; return true; },
   });
 
+  // What the theme button writes: the attribute on <html>, the cookie and the browser's bar.
+  const meta = { attributes: {}, setAttribute(name, value) { this.attributes[name] = String(value); } };
   const document = {
     activeElement: null,
-    documentElement: {},
+    documentElement: { dataset: { theme: /<html [^>]*data-theme="(\w+)"/.exec(html)?.[1] } },
+    cookie: '',
+    querySelector: (selector) => (selector === 'meta[name="theme-color"]' ? meta : null),
     getElementById: (id) => {
       if (islands.has(id)) {
         return { textContent: islands.get(id) };
@@ -295,7 +309,10 @@ const stubDom = (html, snapshot, { size, report, mine, manual, hash, reducedMoti
       },
     },
     matchMedia: (query) => ({ matches: query.includes('prefers-reduced-motion') && reducedMotion }),
-    getComputedStyle: (el) => ({ getPropertyValue: (name) => (el === document.documentElement ? TOKENS.get(name) ?? '' : '') }),
+    getComputedStyle: (el) => ({
+      getPropertyValue: (name) => (el === document.documentElement
+        ? TOKENS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'].get(name) ?? '' : ''),
+    }),
     devicePixelRatio: 2,
     performance: { now: () => Date.now() },
     requestAnimationFrame: (fn) => frames.push(fn),
@@ -326,7 +343,7 @@ const stubDom = (html, snapshot, { size, report, mine, manual, hash, reducedMoti
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
-  return { sandbox, elements, intervals, fetched, replaced, listeners, document, frames, painted, charts, Chart };
+  return { sandbox, elements, intervals, fetched, replaced, listeners, document, meta, frames, painted, charts, Chart };
 };
 
 /**
@@ -334,15 +351,17 @@ const stubDom = (html, snapshot, { size, report, mine, manual, hash, reducedMoti
  * @param {Object} snapshot - What getSnapshot() answered
  * @param {Object} [read] - What else the handler read: the Me rows and the report
  * @param {string} [read.landing] - Forced, rather than decided by the rule
+ * @param {string} [read.theme] - The reader's theme, as the cookie gives it
  * @returns {Promise<string>}
  */
-export const renderPage = (snapshot, { mine = null, report = null, landing } = {}) => ejs.renderFile(
+export const renderPage = (snapshot, { mine = null, report = null, landing, theme } = {}) => ejs.renderFile(
   `${ROOT}views/dashboard.ejs`,
   pageLocals({
     snapshot,
     landing: landing ?? landingTab({ operator: snapshot.operator, contributions: mine?.contributions?.length ?? 0 }),
     mine,
     report,
+    theme,
   })
 );
 
@@ -412,10 +431,11 @@ export const runDocument = async (html, snapshot, size = { width: 1080, height: 
  * @param {{width: number, height: number}} [size] - The box every element reports
  * @param {Object} [options] - As runDocument() takes them, and:
  * @param {string} [options.landing] - The tab the server opens on, if not the rule's
+ * @param {string} [options.theme] - The theme the server renders the page in
  * @returns {Promise<Object>}
  */
 export const runPage = async (snapshot, size, options = {}) => runDocument(
-  await renderPage(snapshot, { mine: options.mine ?? null, report: options.report ?? null, landing: options.landing }),
+  await renderPage(snapshot, { mine: options.mine ?? null, report: options.report ?? null, landing: options.landing, theme: options.theme }),
   snapshot,
   size,
   options

@@ -193,11 +193,16 @@
   const ctx = canvas.getContext('2d');
   const tip = $('o-track-tip');
 
-  // The tokens the track is painted in: the legend under it is drawn in the same.
-  const PAINT = {
-    sync: token('sync'), poll: token('poll'), fail: token('fail'), now: token('now'),
+  // The tokens the track is painted in: the legend under it is drawn in the same. Read again
+  // when the reader switches theme. NOW's line is --now in both themes; its label and the past's
+  // figures are text, so they are --now-ink, which the light theme sets in ink.
+  const PAINT = {};
+  const paint = () => Object.assign(PAINT, {
+    sync: token('sync'), poll: token('poll'), fail: token('fail'), now: token('now'), nowInk: token('now-ink'),
     line: token('line'), lineSoft: token('line-soft'), dim: token('ink-dim'), mute: token('ink-mute'),
-  };
+  });
+
+  paint();
   // Every token is a #rrggbb, which a canvas takes with an alpha only as rgba().
   const alpha = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${
     parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
@@ -209,8 +214,8 @@
   const NOW_INK = 0.8;
 
   const LANES = [
-    { key: 'sync', label: 'Installations', colour: PAINT.sync },
-    { key: 'poll', label: 'Pull requests', colour: PAINT.poll },
+    { key: 'sync', label: 'Installations' },
+    { key: 'poll', label: 'Pull requests' },
   ];
 
   // The axis, in minutes relative to NOW. It starts in the PAST on purpose: overdue subjects
@@ -345,7 +350,7 @@
       const left = ctx.textAlign === 'left' ? x : x - width / 2;
 
       if (left >= drawnTo + 8) {
-        ctx.fillStyle = minutes < 0 ? alpha(PAINT.now, NOW_INK) : PAINT.mute;
+        ctx.fillStyle = minutes < 0 ? alpha(PAINT.nowInk, NOW_INK) : PAINT.mute;
         ctx.fillText(text, x, H - 7);
         drawnTo = left + width;
       }
@@ -402,7 +407,7 @@
 
         // A subject in error backoff is drawn in the failure colour: it is in the queue,
         // but it is there because something went wrong, not because its turn came round.
-        ctx.fillStyle = subject.errors > 0 ? PAINT.fail : lane.colour;
+        ctx.fillStyle = subject.errors > 0 ? PAINT.fail : PAINT[lane.key];
 
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -451,7 +456,7 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = TYPE('500');
-    ctx.fillStyle = flashing ? PAINT.now : alpha(PAINT.now, NOW_INK);
+    ctx.fillStyle = flashing ? PAINT.nowInk : alpha(PAINT.nowInk, NOW_INK);
     ctx.fillText(flashing ? 'CLAIMED' : 'NOW', nowX, MARKER_Y);
     ctx.textBaseline = 'alphabetic';
   };
@@ -1266,5 +1271,6 @@
     render,
     snapshot,
     tick,
+    theme: paint,
   });
 })();

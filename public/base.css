@@ -13,11 +13,16 @@
  * instead. Same URL on both pages on purpose: same cache entry, so the second page a visitor
  * opens pays nothing for its type.
  *
- * Deliberately single-theme. This is an instrument panel for an unattended process, and its
- * public pages are its front door: a light variant would be a second design to keep correct
- * for no reader. Every colour is therefore painted explicitly, so a page holds on any host
- * background - and color-scheme says so to the browser, so what it draws itself (a scrollbar,
- * a select's list, a date picker) is dark too for a reader whose system is set to light.
+ * Two themes, dark by default. The dark one is the product's own: an instrument panel, and the
+ * colours the logo was drawn in. The light one is Fog, a blue-grey ground under near-white
+ * panels, for a reader in a bright room. The reader picks with the button in the dashboard's
+ * header, and a cookie keeps the choice: the server writes it into <html data-theme>, so the
+ * first paint is already in the right theme, on the enrollment page too. Every colour is painted
+ * explicitly, so a page holds on any host background, and color-scheme tells the browser what it
+ * draws itself (a scrollbar, a select's list, a date picker).
+ *
+ * The light theme redefines colours only. A rule that has to differ between the two reads a
+ * token that does, rather than being written twice.
  */
 :root {
   color-scheme: dark;
@@ -36,25 +41,40 @@
   --poll: #3fd0c9;
 
   /* The one loud colour on the dashboard, and it belongs to exactly one element there: the
-     NOW line. Everything the bot does is relative to that line. */
+     NOW line. Everything the bot does is relative to that line. It is the logo's yellow, and
+     stays that yellow in both themes. */
   --now: #ffce00;
+  /* Text that takes the NOW colour: a late tile's figure, the queue's labels. The same yellow
+     here; the light theme sets it in ink, because no yellow dark enough to read on a light
+     ground is still yellow (it turns brown or olive). */
+  --now-ink: #ffce00;
+  /* Text on a fill of the NOW colour: a project's stars. Navy in both themes, the logo's pair
+     with its yellow. */
+  --on-now: #101a2e;
 
   --ok: #2fd07a;
   --warn: #ffb02e;
   --fail: #ff5f6d;
   --idle: #46587c;
 
+  /* Text on a filled hue: a button painted --sync or --poll. */
+  --on-hue: #04101f;
+  /* A surface's lift off the ground. None here: on a dark ground the border is the edge. */
+  --lift: none;
+  /* The two low-saturation pools behind the page, so a flat ground does not read as unstyled. */
+  --pool-a: rgba(77, 148, 255, 0.10);
+  --pool-b: rgba(63, 208, 201, 0.07);
+
   --display: 'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
 
-  /* The type scale: five text steps with an 11px floor, and four display sizes for figures. */
+  /* The type scale: five text steps with an 11px floor, and three display sizes for figures. */
   --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
   --fs-15: 15px;
   --fs-17: 17px;
-  --fd-1: 2.5rem;
   --fd-2: 2.125rem;
   --fd-3: 1.5rem;
   --fd-4: 1.25rem;
@@ -66,6 +86,36 @@
 
   --m-150: 150ms;
   --m-400: 400ms;
+}
+
+/* Fog. Only colours: sizes, faces and timings are the theme's business in neither. Every hue
+   that is also set as text reads at 4.5:1 or more on the panels, and white on it does too. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ground: #e8edf5;
+  --panel: #f8fafd;
+  --panel-2: #edf1f7;
+  --line: #cdd6e4;
+  --line-soft: #dbe2ed;
+  --ink: #101a2e;
+  --ink-dim: #3e4c68;
+  --ink-mute: #5e6b86;
+
+  --sync: #2366e3;
+  --poll: #0e7b76;
+
+  --now-ink: #101a2e;
+
+  --ok: #167e46;
+  --warn: #a05e00;
+  --fail: #ce2f44;
+  --idle: #97a4bd;
+
+  --on-hue: #ffffff;
+  --lift: 0 1px 2px rgba(15, 22, 38, 0.05);
+  --pool-a: rgba(47, 111, 228, 0.07);
+  --pool-b: rgba(14, 154, 146, 0.05);
 }
 
 /* --- the chassis ---------------------------------------------------------------------
@@ -80,10 +130,9 @@
 body {
   margin: 0;
   background: var(--ground);
-  /* Two very low-saturation pools, so the flat ground does not read as an unstyled page. */
   background-image:
-    radial-gradient(900px 500px at 15% -10%, rgba(77, 148, 255, 0.10), transparent 70%),
-    radial-gradient(700px 400px at 95% 8%, rgba(63, 208, 201, 0.07), transparent 70%);
+    radial-gradient(900px 500px at 15% -10%, var(--pool-a), transparent 70%),
+    radial-gradient(700px 400px at 95% 8%, var(--pool-b), transparent 70%);
   background-attachment: fixed;
   color: var(--ink);
   font-family: var(--sans);
@@ -109,8 +158,28 @@ header.bar {
   border-bottom: 1px solid var(--line-soft);
 }
 
-/* The logo is a wordmark: sized by its height, left to find its own width. */
-header.bar img { height: 26px; width: auto; opacity: 0.9; }
+/* The product's name, first in the header of both pages: the contribution heart, then the word. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--fd-3);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.brand > img { width: 36px; height: 36px; flex: none; }
+
+/* The company's logo is a wordmark: sized by its height, left to find its own width. It is drawn
+   for a dark ground, so the light theme sets it in a single dark ink. That holds for any
+   one-colour logo; a logo in several colours would need a variant of its own. */
+img.company { height: 20px; width: auto; opacity: 0.7; }
+
+:root[data-theme="light"] img[src="/images/company_logo.svg"] { filter: brightness(0); opacity: 0.8; }
 
 footer {
   padding-top: 6px;
@@ -126,6 +195,7 @@ footer {
   background: var(--panel);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
+  box-shadow: var(--lift);
 }
 
 /* Size is the page's too - a 1.28rem bar heading on the dashboard, a 1.6rem h1 on a page

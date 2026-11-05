@@ -11,7 +11,8 @@
  * it moves here once a second tab needs it too.
  *
  * Dash.tab(key, hooks)          activate() on selection, render() when a refresh comes round,
- *                               snapshot?(fresh) for each /dashboard/data payload, tick?() each second
+ *                               snapshot?(fresh) for each /dashboard/data payload, tick?() each second,
+ *                               theme?() when the reader switches theme, before the redraw
  * Dash.now()                    the server's clock, from the skew of the last payload
  * Dash.$(id), Dash.esc(value)   an element by its id; text made safe for innerHTML
  * Dash.fmt                      n num ordinal place pct date month monthName monthAxis day span seconds
@@ -32,6 +33,8 @@
  * Dash.state                    { tab, lists, sort }: what a refresh must not lose
  * Dash.token(name), Dash.reduceMotion   a CSS token's value, for what paints a canvas; whether
  *                               the reader asked for no motion
+ * Dash.theme(name)              switch the page to 'dark' or 'light': its attribute, the cookie
+ *                               that keeps the choice, the browser's bar and the charts' inks
  * Dash.marks                    outcome forge ownBadge scope face chip
  * Dash.ui                       nothing fragments name tiles stackedBar lineChart dotChart filters counter
  *                               pages filteredList
@@ -460,16 +463,21 @@
 
   /* ---- charts ------------------------------------------------------------- */
 
-  // A canvas takes no var(), so what paints one reads the tokens, once: the page has one theme.
+  // A canvas takes no var(), so what paints one reads the tokens. A computed style is live: read
+  // after the theme changes, it answers the new theme's values.
   const style = getComputedStyle(document.documentElement);
   const token = (name) => style.getPropertyValue(`--${name}`).trim();
 
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Every chart's theme, set once: its ticks in the page's face at 12px, its inks, and no motion for
-  // a reader who asked for none. No legend and no painted tooltip: each chart's legend is written
-  // in the page under its canvas, and its tooltip over it, styled by .chart-tip.
-  Object.assign(Chart.defaults, { color: token('ink-mute'), borderColor: token('line-soft'), maintainAspectRatio: false });
+  // Every chart's theme: its ticks in the page's face at 12px, its inks, and no motion for a reader
+  // who asked for none. No legend and no painted tooltip: each chart's legend is written in the
+  // page under its canvas, and its tooltip over it, styled by .chart-tip. The inks are set again
+  // by theme(), below.
+  const inks = () => Object.assign(Chart.defaults, { color: token('ink-mute'), borderColor: token('line-soft') });
+
+  inks();
+  Object.assign(Chart.defaults, { maintainAspectRatio: false });
   Object.assign(Chart.defaults.font, { family: token('sans'), size: 12 });
 
   if (reduceMotion) Chart.defaults.animation = false;
@@ -515,6 +523,23 @@
 
   // Every chart made, by its host's id: a refresh updates it rather than making another.
   const charts = new Map();
+
+  /**
+   * Switch the page's theme, and keep the choice
+   *
+   * The cookie is read by the server, which renders the next page in this theme from its first
+   * paint (src/utils/theme.js), the enrollment page too: hence Path=/. A year, Lax, and Secure
+   * wherever the page is served over https. What draws itself from the tokens through CSS
+   * follows at once; the charts' inks are set here, and each chart takes them on its next
+   * drawing, which main.js asks for straight after.
+   * @param {'dark'|'light'} name
+   */
+  const theme = (name) => {
+    document.documentElement.dataset.theme = name;
+    document.cookie = `oss_dashboard_theme=${name}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', token('ground'));
+    inks();
+  };
 
   /**
    * A chart's legend, as the items of its <ul class="legend-list">
@@ -1183,6 +1208,7 @@
     data,
     state: { tab: null, lists: {}, sort: {} },
     token,
+    theme,
     reduceMotion,
     marks,
     chart: { months },

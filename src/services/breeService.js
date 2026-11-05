@@ -253,23 +253,33 @@ export const stopBree = async (timeoutMs = STOP_TIMEOUT_MS) => {
   logger.info(`stopping the scheduler - ${running} worker(s) still running`);
 
   let timer;
-  let stopped;
+  let stopFailed = false;
+  let stopError;
 
-  try {
-    stopped = await Promise.race([
-      bree.stop().then(() => true),
-      new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs, false); }),
-    ]);
-  } finally {
-    // Also when bree.stop() rejects, which it does after a failed start: a timer left armed
-    // would hold the process up for the whole bound.
-    clearTimeout(timer);
-  }
+  // A rejection is a stop that did not happen, handled like one that ran out of time: whatever
+  // still runs is terminated below, and only then is the error passed on. Bree 9 rejects only
+  // when init() fails, before any worker can exist, but the termination must not depend on it.
+  // One that arrives after the bound is too late to report: the workers are already terminated.
+  const stopped = await Promise.race([
+    bree.stop().then(() => true, (error) => {
+      stopFailed = true;
+      stopError = error;
+      return false;
+    }),
+    new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs, false); }),
+  ]);
+
+  clearTimeout(timer);
 
   if (!stopped) {
     stopping = true;
     // Each exit is reported by errorHandler above, one line per job.
     await Promise.all([...bree.workers.values()].map((worker) => worker.terminate()));
+  }
+
+  // src/index.js logs it and carries on to the pool.
+  if (stopFailed) {
+    throw stopError;
   }
 
   // Without this line a shutdown that had to terminate a worker reads like a process that

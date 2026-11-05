@@ -182,8 +182,9 @@ export const claimRepositoriesForRefresh = async () => {
       UPDATE github_repositories
       SET refresh_claimed_at = CURRENT_TIMESTAMP
       WHERE id IN (SELECT id FROM due)
+      -- The lease as text, the token the release is fenced on: see claimInstallationsForSync().
       RETURNING id, github_id, full_name, etag, stargazers_count, refresh_error_count,
-                refresh_404_count
+                refresh_404_count, refresh_claimed_at::text AS lease
     )
     SELECT c.*,
            -- Read once for the whole batch, not once per repository: it is the same answer for
@@ -211,6 +212,28 @@ export const claimRepositoriesForRefresh = async () => {
 };
 
 /**
+ * Whether a fenced release found its lease, saying so when it did not
+ *
+ * Every release below writes only while the row still holds the lease its claim took - the
+ * sync's fence, see heldLease() in installations.js. Nothing but a release clears this lease, so
+ * here it only ever catches a run that outlived CLAIM_LEASE_MINUTES while another took the row,
+ * and that run's outcome is the one to keep.
+ * @param {{full_name: string}} claim - The row as it was claimed
+ * @param {number} rowCount - What the release updated
+ * @returns {boolean} Whether the outcome was written
+ */
+const heldLease = (claim, rowCount) => {
+  if (rowCount === 0) {
+    logger.info(
+      { repo: claim.full_name },
+      `the refresh outcome for ${claim.full_name} is dropped - another run claimed the row after this one's lease ran out`
+    );
+  }
+
+  return rowCount > 0;
+};
+
+/**
  * Store what GitHub said about a repository, and put it back in the queue
  *
  * `full_name` is rewritten from the response rather than left alone: the request went out with
@@ -222,13 +245,15 @@ export const claimRepositoriesForRefresh = async () => {
  * `github_id` is deliberately NOT written. It is identity: ensureRepository() sets it once, the
  * request was made with it, and an UPDATE able to change it is an UPDATE able to point this
  * row's whole history at a different repository.
- * @param {number} id - The claimed row
+ * @param {{id: number, lease: string, full_name: string}} claim - The row as
+ *   claimRepositoriesForRefresh() returned it
  * @param {Object} repository - As returned by GET /repositories/{id}
  * @param {?string} etag - Response ETag, for the next conditional request
  * @param {number} delaySeconds - Dispersed delay until the next refresh
  * @param {Function} [run] - Bound to a transaction by transaction(); defaults to the pool
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markRefreshSucceeded = async (id, repository, etag, delaySeconds, run = query) => {
+export const markRefreshSucceeded = async (claim, repository, etag, delaySeconds, run = query) => {
   const queryText = `
     UPDATE github_repositories
     SET full_name = $3,
@@ -251,11 +276,12 @@ export const markRefreshSucceeded = async (id, repository, etag, delaySeconds, r
         -- Cleared, or the page keeps reporting a failure that has already been repaired.
         last_refresh_error = NULL
     WHERE id = $1
+      AND refresh_claimed_at = $15::timestamptz
   `;
 
   try {
-    await run(queryText, [
-      id,
+    const { rowCount } = await run(queryText, [
+      claim.id,
       delaySeconds,
       repository.full_name,
       repository.html_url ?? null,
@@ -270,11 +296,14 @@ export const markRefreshSucceeded = async (id, repository, etag, delaySeconds, r
       repository.archived ?? null,
       repository.pushed_at ?? null,
       etag ?? null,
+      claim.lease,
     ]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
     // The refresh job's catch says "could not refresh <name>" and can mark the repository gone
     // on the strength of it, so a bare driver sentence here would be read as GitHub failing.
-    throw new Error(`could not record the refresh of repository row ${id}`, { cause });
+    throw new Error(`could not record the refresh of repository row ${claim?.id}`, { cause });
   }
 };
 
@@ -305,10 +334,11 @@ export const recordRename = async (id, oldFullName, newFullName, run = query) =>
 
 /**
  * A conditional request answered 304: nothing changed, so only the cursor moves
- * @param {number} id - The claimed row
+ * @param {{id: number, lease: string}} claim - The row as claimRepositoriesForRefresh() returned it
  * @param {number} delaySeconds - Dispersed delay until the next refresh
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markRefreshUnchanged = async (id, delaySeconds) => {
+export const markRefreshUnchanged = async (claim, delaySeconds) => {
   const queryText = `
     UPDATE github_repositories
     SET last_refreshed_at = CURRENT_TIMESTAMP,
@@ -318,12 +348,15 @@ export const markRefreshUnchanged = async (id, delaySeconds) => {
         refresh_404_count = 0,
         last_refresh_error = NULL
     WHERE id = $1
+      AND refresh_claimed_at = $3::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
-    throw new Error(`could not record an unchanged refresh of repository row ${id}`, { cause });
+    throw new Error(`could not record an unchanged refresh of repository row ${claim?.id}`, { cause });
   }
 };
 
@@ -332,13 +365,14 @@ export const markRefreshUnchanged = async (id, delaySeconds) => {
  *
  * No retirement here. A repository leaves the queue by having no `github_id` or by being gone,
  * and both are decided elsewhere — this counts a failure and backs off, and does nothing else.
- * @param {number} id - The claimed row
+ * @param {{id: number, lease: string}} claim - The row as claimRepositoriesForRefresh() returned it
  * @param {number} delaySeconds - Backoff before the next attempt
  * @param {?string} errorMessage - What went wrong, for the page
  * @param {boolean} [notFound] - The repository itself answered 404 or 410. Anything else breaks
  *   the run, so refresh_404_count only ever counts consecutive ones
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markRefreshFailed = async (id, delaySeconds, errorMessage = null, notFound = false) => {
+export const markRefreshFailed = async (claim, delaySeconds, errorMessage = null, notFound = false) => {
   const queryText = `
     UPDATE github_repositories
     SET refresh_error_count = refresh_error_count + 1,
@@ -347,12 +381,15 @@ export const markRefreshFailed = async (id, delaySeconds, errorMessage = null, n
         next_refresh_at = CURRENT_TIMESTAMP + make_interval(secs => $2::int),
         last_refresh_error = $3::text
     WHERE id = $1
+      AND refresh_claimed_at = $5::timestamptz
   `;
 
   try {
-    await query(queryText, [id, delaySeconds, errorMessage, notFound]);
+    const { rowCount } = await query(queryText, [claim.id, delaySeconds, errorMessage, notFound, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
-    throw new Error(`could not record a failed refresh of repository row ${id}`, { cause });
+    throw new Error(`could not record a failed refresh of repository row ${claim?.id}`, { cause });
   }
 };
 
@@ -372,10 +409,11 @@ export const markRefreshFailed = async (id, delaySeconds, errorMessage = null, n
  * One-way, on purpose. Nothing here clears `gone_at`, because a cleared row would have to be
  * back in the queue to be noticed, and a row in the queue is one this function just took out. A
  * repository that comes back is a hand-written UPDATE, and rare enough to be worth one.
- * @param {number} id - The claimed row
+ * @param {{id: number, lease: string}} claim - The row as claimRepositoriesForRefresh() returned it
  * @param {?string} errorMessage - The status GitHub answered with, for the page
+ * @returns {Promise<boolean>} False when the outcome was superseded and dropped
  */
-export const markRepositoryGone = async (id, errorMessage = null) => {
+export const markRepositoryGone = async (claim, errorMessage = null) => {
   const queryText = `
     UPDATE github_repositories
     SET gone_at = COALESCE(gone_at, CURRENT_TIMESTAMP),
@@ -384,11 +422,14 @@ export const markRepositoryGone = async (id, errorMessage = null) => {
         refresh_404_count = refresh_404_count + 1,
         last_refresh_error = $2::text
     WHERE id = $1
+      AND refresh_claimed_at = $3::timestamptz
   `;
 
   try {
-    await query(queryText, [id, errorMessage]);
+    const { rowCount } = await query(queryText, [claim.id, errorMessage, claim.lease]);
+
+    return heldLease(claim, rowCount);
   } catch (cause) {
-    throw new Error(`could not mark repository row ${id} gone`, { cause });
+    throw new Error(`could not mark repository row ${claim?.id} gone`, { cause });
   }
 };

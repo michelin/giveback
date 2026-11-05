@@ -169,9 +169,10 @@ every poll overwrites it.
 ### `github_pull_requests` is a published interface
 
 Downstream consumers read it, and so does most of this application. Columns nothing here reads
-back (`updated_at`, `changed_files`, `src_repo`, `src_ref`, `dest_repo`, `dest_ref`, `license`,
-`topics`, `forks_count`, `merged_by`) are kept for those consumers. The traps are recorded as
-`COMMENT ON` in the database itself, where a BI tool shows them:
+back (`changed_files`, `src_repo`, `src_ref`, `dest_repo`, `dest_ref`, `license`, `topics`,
+`forks_count`, `merged_by`) are kept for those consumers. `updated_at` is read once, by
+`refreshPullRequest`, so that a read from somebody else's feed never overwrites a newer one. The
+traps are recorded as `COMMENT ON` in the database itself, where a BI tool shows them:
 
 - `dest_repo` is **frozen**: the repository's name when the contribution was first seen.
   Information only; no query may join, group or filter on it. The current name comes from
@@ -186,7 +187,8 @@ back (`updated_at`, `changed_files`, `src_repo`, `src_ref`, `dest_repo`, `dest_r
 
 Which columns freeze is enforced: a test reads the `ON CONFLICT` clause of `upsertPullRequest` and
 requires every column to be either refreshed or in the frozen list, and every name in that list to
-be genuinely absent from the clause.
+be genuinely absent from the clause. A second test reads the `SET` list of `refreshPullRequest`,
+the other writer, and requires it to leave the frozen list, `opened_by` and `user_type` alone.
 
 ## Changing the schema
 

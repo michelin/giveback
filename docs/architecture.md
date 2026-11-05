@@ -143,11 +143,17 @@ draws a backlog no run will drain. `sync_disabled_at` is deliberately *not* in i
 application retired (see [Giving up](#giving-up)) keeps having their open pull requests polled.
 
 The join is on a **name**. A GitHub login rename would evict that user's open pull requests for
-good, since only a poll rewrites `opened_by` and the rename stops the poll matching.
-`refreshStaleLogins` patches that in the same transaction as the login rewrite
-(`UPDATE github_pull_requests SET opened_by = <new> WHERE opened_by = <old>`). It is a stop-gap:
-it misfires if another enrolled contributor has since taken the freed login. The real fix is an
-`opened_by_user_id` column joined on `github_installations.user_id`.
+good without the carry below, since the rename stops the poll matching.
+Every statement that rewrites a stored login carries the pull requests in the same statement
+(`UPDATE github_pull_requests SET opened_by = <new> WHERE opened_by = <old>`): `refreshStaleLogins`
+in the reconciliation, and the two upserts that can store a new login first, a reinstall's webhook
+(`insertPendingInstallation`) and the OAuth callback (`verifyInstallation`). Whichever stores it
+first must carry, because it leaves the others nothing stale to see. Nothing moves while another
+row still stores the old login: GitHub frees a renamed login for anybody to register, and a
+reinstall can bring back a login years old that somebody else has enrolled with since, whose
+pull requests are not the returning person's to take. The price, rarer: whoever took a login an
+old row still stores, then renamed, keeps their pull requests under it. It is a stop-gap; the
+real fix is an `opened_by_user_id` column joined on `github_installations.user_id`.
 
 ### What the events feed is narrowed to
 
@@ -163,7 +169,8 @@ Two filters decide what is *read*; a third decides only what is *measured*.
 3. **Pull requests the person opened themselves**, for `github_pull_requests` only. The feed lists
    what somebody *did*, and a maintainer's feed is full of `labeled`, `closed` or `merged` actions
    on other people's pull requests. The envelope carries no author, so `isOwnPullRequest` asks the
-   hydration response.
+   hydration response. Somebody else's pull request never creates a row, but it does refresh one
+   that already exists, which is how a reopen or a merge by a maintainer reaches the author's row.
 
 `github_pull_request_events` keeps **every** event with its full snapshot, whoever opened the pull
 request. It is the archive, kept against the day reviews or merges become a figure, and it is what
@@ -228,7 +235,14 @@ Something new: the interval drops back to the floor. Nothing new: it doubles, up
 
 The poll's floor is close to unreachable: the only state an open pull request can move to is
 `closed`, which also takes it out of the queue. So the 4 h **ceiling** is the real detection
-latency for a merge.
+latency for a merge. The way back in is the sync: a pull request reopened by somebody else is
+only in *their* feed, and when they are enrolled, hydrating that event refreshes the author's
+existing row (`refreshPullRequest`, never an insert, and never with an older read than the row
+holds). A state that moved also makes `next_poll_at` due now, so the row is back in the poll
+queue at the next tick rather than at the end of its old interval. A reopen seen in no enrolled,
+synced feed is still missed: somebody not enrolled, an enrolled maintainer whose sync is disabled
+or suspended, or one acting on a repository in their own namespace, which filter 1 drops before
+anything is hydrated.
 
 An active contributor gets 15-minute freshness; a dormant one settles at the ceiling, the
 worst-case delay before a contribution is noticed. The ceiling must stay far below GitHub's
@@ -324,6 +338,13 @@ in steady state, and what those return is what suppresses the expensive hydratio
 is skipped only when already known **and** hydrated, so a snapshot left NULL by a failed fetch is
 retried. Size batches against that floor.
 
+For that retry to happen, the run that failed must not store the fresh ETag, or the next run gets
+a `304` and never offers the event again. So an event that throws for any reason other than a
+`404`, `410` or `451` on the event itself (a 5xx, a rate limit, a socket, the database, or a `404`
+from minting the token, which is about the installation) leaves the stored ETag in place, and the
+next run reads the feed again. A `404`, `410` or `451` answers the same every time, and holding
+the ETag back for one would re-read the feed for ever.
+
 The ETag trick works for `GET /users/{u}/events`, whose ETag is stable across tokens, but **not**
 for a pull request, whose ETag changes with every installation token; the poll is bounded by
 scheduling instead. `GET /repositories/{id}` does answer `304`.
@@ -348,6 +369,13 @@ RETURNING …`, never a `SELECT` followed by an `UPDATE`. One column per queue: 
   lock service.
 - **A claim is a lease, not a flag.** A worker that dies leaves it set, and the row returns to the
   queue once `CLAIM_LEASE_MINUTES` elapses.
+- **A release is fenced on the lease it took.** The claim hands each row its lease, and the
+  release writes only `WHERE <subject>_claimed_at = <that lease>`. A re-enrollment, a reinstall,
+  a suspend or unsuspend webhook, an uninstall or a login rename clears an installation's lease
+  while a worker may still hold it, and a run that outlives its lease sees the row claimed again. Either way the outcome was
+  decided on a snapshot the row no longer matches, so it is logged at `info` and dropped, never
+  counted as a failure: written, it would put a backoff, or a retirement read off reset counts,
+  on a row that was just repaired.
 - **Due times are committed per subject**, not per batch, so a run killed halfway keeps its
   progress.
 - **Batches are bounded** (`SYNC_BATCH_SIZE`, `POLL_BATCH_SIZE`, `REPO_BATCH_SIZE`), and Bree

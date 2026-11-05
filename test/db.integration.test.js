@@ -181,7 +181,8 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
   /**
    * An installation that claimInstallationsForSync() will hand out
-   * @returns {Promise<number>} github_installations.id, which the mark* functions take
+   * @returns {Promise<number>} github_installations.id, which lease() turns into what the mark*
+   *   functions take
    */
   const enrol = async (login, { userId = 1, installationId = 42 } = {}) => {
     await db.installations.insertPendingInstallation({ id: userId, login }, installationId);
@@ -197,6 +198,21 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
     await db.pullRequests.upsertPullRequest(hydrated(overrides), id);
 
     return id;
+  };
+
+  /**
+   * Hold the lease on one row as its claim would, and hand back what a release takes
+   *
+   * Every release is fenced on the lease its claim returned, so one handed a bare id - or a claim
+   * since released or taken again - writes nothing. Set directly rather than through the claim
+   * query, so the row need not be due.
+   * @param {string} table - One of the three queues
+   * @returns {Promise<{id: number, lease: string}>}
+   */
+  const lease = (table, id) => {
+    const column = { github_installations: 'sync_claimed_at', github_pull_requests: 'poll_claimed_at', github_repositories: 'refresh_claimed_at' }[table];
+
+    return oneRow(`UPDATE ${table} SET ${column} = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id, ${column}::text AS lease`, [id]);
   };
 
   /** Push a lease into the past, so the row is claimable again without waiting it out. */
@@ -224,7 +240,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       // The sync job destructures exactly these off the claim.
       assert.deepEqual(
         Object.keys(claimed[0]).sort(),
-        ['events_etag', 'id', 'installation_id', 'last_synced_at', 'sync_404_count', 'sync_error_count', 'sync_interval_minutes', 'user_login'],
+        ['events_etag', 'id', 'installation_id', 'last_synced_at', 'lease', 'sync_404_count', 'sync_error_count', 'sync_interval_minutes', 'user_login'],
         'the claim no longer returns what the sync job reads off it'
       );
       // One row, not two: the verification is an upsert on user_id, not a second enrollment.
@@ -365,13 +381,72 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal((await db.installations.claimInstallationsForSync()).length, 1);
     });
 
+    test("a release from a worker whose row was renamed or re-enrolled meanwhile changes nothing", async () => {
+      // The worker decides on the counts its claim returned. A rename found by the
+      // reconciliation, or the person signing in again, resets those counts and clears the lease
+      // while it is still running; the old login then 404s, and the snapshot says it is the
+      // third in a row. Written, that retires an account that was just repaired - for good,
+      // since the login now matches and no reconciliation will ever see it as stale again.
+      await enrol('octocat');
+      await admin.none(`UPDATE ${SCHEMA}.github_installations SET sync_404_count = 2, sync_error_count = 2`);
+
+      const [renamedUnder] = await db.installations.claimInstallationsForSync();
+
+      await db.installations.refreshStaleLogins([{ id: 42, account: { login: 'monalisa' } }]);
+
+      assert.equal(
+        await db.installations.markSyncFailed(renamedUnder, 3600, 'Not Found', 'account gone', true),
+        false,
+        'a superseded outcome is reported as dropped, not as a failure to throw'
+      );
+
+      const columns = `SELECT sync_disabled_at, sync_404_count, sync_error_count, last_sync_error,
+                              sync_claimed_at, next_sync_at <= CURRENT_TIMESTAMP AS due
+                       FROM github_installations`;
+      const repaired = { sync_disabled_at: null, sync_404_count: 0, sync_error_count: 0, last_sync_error: null, sync_claimed_at: null, due: true };
+
+      assert.deepEqual(await oneRow(columns), repaired, 'the stale verdict was written over the rename');
+
+      // The same with a success, after the person enrolled again: the backoff and the interval
+      // it would write belong to the row as it was.
+      const [reenrolledUnder] = await db.installations.claimInstallationsForSync();
+
+      await enrol('monalisa');
+
+      assert.equal(await db.installations.markSyncSucceeded(reenrolledUnder, { intervalMinutes: 60, delaySeconds: 3600, etag: 'W/"stale"' }), false);
+      assert.deepEqual(await oneRow(columns), repaired, 'a re-enrolled person waits out the outcome of a run that started before they did');
+      assert.equal((await oneRow(`SELECT events_etag FROM github_installations`)).events_etag, null);
+    });
+
+    test("a release from a worker whose lease ran out and was taken again changes nothing, and the new holder's does", async () => {
+      await enrol('octocat');
+
+      const [first] = await db.installations.claimInstallationsForSync();
+
+      await expireLease('github_installations', 'sync_claimed_at');
+
+      const [second] = await db.installations.claimInstallationsForSync();
+
+      assert.notEqual(second.lease, first.lease);
+      assert.equal(await db.installations.markSyncFailed(first, 3600, 'Bad Gateway'), false);
+
+      const held = await oneRow(`SELECT sync_error_count, sync_claimed_at::text AS lease FROM github_installations`);
+
+      assert.deepEqual(held, { sync_error_count: 0, lease: second.lease }, 'the stale worker released a row another one holds');
+      assert.equal(await db.installations.markSyncSucceeded(second, { intervalMinutes: 15, delaySeconds: 60, etag: null }), true);
+      assert.equal((await oneRow(`SELECT sync_claimed_at FROM github_installations`)).sync_claimed_at, null);
+    });
+
     test("markSyncSucceeded releases the lease, pushes the due time out and clears the failure", async () => {
       await enrol('octocat');
 
       const [claimed] = await db.installations.claimInstallationsForSync();
 
-      await db.installations.markSyncFailed(claimed.id, 0, 'Not Found');
-      await db.installations.markSyncSucceeded(claimed.id, { intervalMinutes: 30, delaySeconds: 600, etag: 'W/"abc"' });
+      await db.installations.markSyncFailed(claimed, 0, 'Not Found');
+
+      const [again] = await db.installations.claimInstallationsForSync();
+
+      assert.equal(await db.installations.markSyncSucceeded(again, { intervalMinutes: 30, delaySeconds: 600, etag: 'W/"abc"' }), true);
 
       const row = await oneRow(
         `SELECT sync_claimed_at, sync_error_count, last_sync_error, events_etag, sync_interval_minutes,
@@ -391,12 +466,10 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
     test("markSyncSucceeded keeps the stored etag when the sync had none to report", async () => {
       // COALESCE, not assignment: a 304 reports no new etag, and overwriting it with null would
       // make the next request unconditional and cost a rate-limit hit every time.
-      await enrol('octocat');
+      const id = await enrol('octocat');
 
-      const [claimed] = await db.installations.claimInstallationsForSync();
-
-      await db.installations.markSyncSucceeded(claimed.id, { intervalMinutes: 15, delaySeconds: 60, etag: 'W/"first"' });
-      await db.installations.markSyncSucceeded(claimed.id, { intervalMinutes: 15, delaySeconds: 60, etag: null });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 15, delaySeconds: 60, etag: 'W/"first"' });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 15, delaySeconds: 60, etag: null });
 
       assert.equal((await oneRow(`SELECT events_etag FROM github_installations`)).events_etag, 'W/"first"');
     });
@@ -406,16 +479,19 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
       const [claimed] = await db.installations.claimInstallationsForSync();
 
-      await db.installations.markSyncFailed(claimed.id, 0, 'Not Found', null);
+      await db.installations.markSyncFailed(claimed, 0, 'Not Found', null);
 
       const retrying = await oneRow(`SELECT sync_error_count, last_sync_error, sync_disabled_at FROM github_installations`);
 
       assert.equal(retrying.sync_error_count, 1);
       assert.equal(retrying.last_sync_error, 'Not Found');
       assert.equal(retrying.sync_disabled_at, null, 'one failure must not retire an account');
-      assert.equal((await db.installations.claimInstallationsForSync()).length, 1, 'a failing row stays in the queue');
 
-      await db.installations.markSyncFailed(claimed.id, 0, 'Not Found', 'account gone');
+      const [again] = await db.installations.claimInstallationsForSync();
+
+      assert.ok(again, 'a failing row stays in the queue');
+
+      await db.installations.markSyncFailed(again, 0, 'Not Found', 'account gone');
 
       const retired = await oneRow(`SELECT sync_error_count, sync_disabled_at, sync_disabled_reason FROM github_installations`);
 
@@ -429,17 +505,19 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       const id = await enrol('octocat');
       const count404 = async () => (await oneRow(`SELECT sync_404_count, sync_error_count FROM github_installations`));
 
-      await db.installations.markSyncFailed(id, 0, 'Not Found', null, true);
-      await db.installations.markSyncFailed(id, 0, 'Not Found', null, true);
+      const held = () => lease('github_installations', id);
+
+      await db.installations.markSyncFailed(await held(), 0, 'Not Found', null, true);
+      await db.installations.markSyncFailed(await held(), 0, 'Not Found', null, true);
 
       assert.deepEqual(await count404(), { sync_404_count: 2, sync_error_count: 2 });
 
-      await db.installations.markSyncFailed(id, 0, 'Bad Gateway', null, false);
+      await db.installations.markSyncFailed(await held(), 0, 'Bad Gateway', null, false);
 
       assert.deepEqual(await count404(), { sync_404_count: 0, sync_error_count: 3 }, 'a 502 between two 404s is not a run');
 
-      await db.installations.markSyncFailed(id, 0, 'Not Found', null, true);
-      await db.installations.markSyncSucceeded(id, { intervalMinutes: 15, delaySeconds: 60, etag: null });
+      await db.installations.markSyncFailed(await held(), 0, 'Not Found', null, true);
+      await db.installations.markSyncSucceeded(await held(), { intervalMinutes: 15, delaySeconds: 60, etag: null });
 
       assert.deepEqual(await count404(), { sync_404_count: 0, sync_error_count: 0 });
     });
@@ -449,7 +527,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
       const [claimed] = await db.installations.claimInstallationsForSync();
 
-      await db.installations.markSyncFailed(claimed.id, 0, 'Not Found', 'repeated failures');
+      await db.installations.markSyncFailed(claimed, 0, 'Not Found', 'repeated failures');
       await enrol('octocat');
 
       assert.equal((await db.installations.claimInstallationsForSync()).length, 1);
@@ -497,12 +575,71 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       );
     });
 
+    test("a reinstall under a new login carries the contributions, which the reconciliation would no longer see", async () => {
+      // Renamed, then reinstalled: the webhook stores the new login before the hourly
+      // reconciliation runs, and that reconciliation then finds nothing stale to carry.
+      await enrol('octocat');
+      await contribute();
+      await contribute({ id: 7002, number: 2, user: { login: 'hubber', type: 'User' } });
+
+      await db.installations.insertPendingInstallation({ id: 1, login: 'monalisa' }, 42);
+
+      assert.equal(
+        (await oneRow(`SELECT opened_by FROM github_pull_requests WHERE number = 7`)).opened_by,
+        'octocat',
+        'the same installation id rewrites no login, so nothing may move either'
+      );
+
+      await db.installations.insertPendingInstallation({ id: 1, login: 'monalisa' }, 43);
+      await db.installations.verifyInstallation({ id: 1, login: 'monalisa' }, 'monalisa@michelin.com', 43);
+
+      assert.deepEqual(
+        await rowsOf(`SELECT number, opened_by FROM github_pull_requests ORDER BY number`),
+        [{ number: 2, opened_by: 'hubber' }, { number: 7, opened_by: 'monalisa' }],
+        "the renamed user's pull request was left under the old login, or somebody else's moved with it"
+      );
+      assert.deepEqual(await db.installations.refreshStaleLogins([{ id: 43, account: { login: 'monalisa' } }]), []);
+      assert.equal((await db.polling.claimPullRequestsForPoll()).length, 1, 'the contribution was orphaned by the reinstall');
+    });
+
+    test("re-enrolling under a new login carries the contributions too", async () => {
+      await enrol('octocat');
+      await contribute();
+
+      await db.installations.verifyInstallation({ id: 1, login: 'monalisa' }, 'monalisa@michelin.com', 42);
+
+      assert.equal((await oneRow(`SELECT opened_by FROM github_pull_requests`)).opened_by, 'monalisa');
+      assert.equal((await db.polling.claimPullRequestsForPoll()).length, 1, 'the contribution was orphaned by the re-enrollment');
+    });
+
+    test("a reinstall by the previous holder of a freed login leaves the new holder's pull requests alone", async () => {
+      // Uninstalled, then renamed: somebody else registered the freed 'octocat' and enrolled.
+      // The returning user's row still stores 'octocat', but the pull requests under it are
+      // no longer theirs to take.
+      const { InstallationEvent } = await import("../src/utils/types.js");
+
+      await db.installations.insertPendingInstallation({ id: 1, login: 'octocat' }, 41);
+      await db.installations.handleInstallationEvent(InstallationEvent.DELETED, 41);
+      await enrol('octocat', { userId: 2, installationId: 42 });
+      await contribute();
+
+      await db.installations.insertPendingInstallation({ id: 1, login: 'monalisa' }, 43);
+      await db.installations.verifyInstallation({ id: 1, login: 'monalisa' }, 'monalisa@michelin.com', 43);
+
+      assert.equal(
+        (await oneRow(`SELECT opened_by FROM github_pull_requests`)).opened_by,
+        'octocat',
+        "the new holder's pull request was handed to the old holder of the login"
+      );
+      assert.equal((await db.polling.claimPullRequestsForPoll()).length, 1, "the new holder's pull request left their poll");
+    });
+
     test("a rename clears a retirement made for 'account gone' and leaves any other one standing", async () => {
       const octocat = await enrol('octocat', { userId: 1, installationId: 42 });
       const hubber = await enrol('hubber', { userId: 2, installationId: 43 });
 
-      await db.installations.markSyncFailed(octocat, 0, '404', 'account gone');
-      await db.installations.markSyncFailed(hubber, 0, 'boom', 'repeated failures');
+      await db.installations.markSyncFailed(await lease('github_installations', octocat), 0, '404', 'account gone');
+      await db.installations.markSyncFailed(await lease('github_installations', hubber), 0, 'boom', 'repeated failures');
 
       await db.installations.refreshStaleLogins([
         { id: 42, account: { login: 'monalisa' } },
@@ -592,13 +729,32 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal((await db.polling.claimPullRequestsForPoll()).length, 1);
     });
 
+    test("a poll release from a worker whose lease ran out and was taken again changes nothing", async () => {
+      await enrol('octocat');
+      await contribute();
+
+      const [first] = await db.polling.claimPullRequestsForPoll();
+
+      await expireLease('github_pull_requests', 'poll_claimed_at');
+
+      const [second] = await db.polling.claimPullRequestsForPoll();
+
+      assert.equal(await db.polling.markPollFailed(first, 3600, 'Bad gateway'), false);
+      assert.deepEqual(
+        await oneRow(`SELECT poll_error_count, last_poll_error, poll_claimed_at::text AS lease FROM github_pull_requests`),
+        { poll_error_count: 0, last_poll_error: null, lease: second.lease },
+        'the stale worker released a row another one holds'
+      );
+      assert.equal(await db.polling.markPollSucceeded(second, { intervalMinutes: 45, delaySeconds: 900 }), true);
+    });
+
     test("markPollSucceeded and markPollFailed move only the scheduling columns", async () => {
       await enrol('octocat');
       await contribute();
 
       const [claimed] = await db.polling.claimPullRequestsForPoll();
 
-      await db.polling.markPollFailed(claimed.id, 0, 'Bad gateway');
+      await db.polling.markPollFailed(claimed, 0, 'Bad gateway');
 
       const failed = await oneRow(`SELECT poll_error_count, last_poll_error, poll_claimed_at FROM github_pull_requests`);
 
@@ -606,8 +762,9 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal(failed.last_poll_error, 'Bad gateway');
       assert.equal(failed.poll_claimed_at, null, 'a failed poll that keeps its lease strands the row for the lease window');
 
-      await db.polling.claimPullRequestsForPoll();
-      await db.polling.markPollSucceeded(claimed.id, { intervalMinutes: 45, delaySeconds: 900 });
+      const [again] = await db.polling.claimPullRequestsForPoll();
+
+      await db.polling.markPollSucceeded(again, { intervalMinutes: 45, delaySeconds: 900 });
 
       const succeeded = await oneRow(
         `SELECT poll_error_count, last_poll_error, poll_claimed_at, poll_interval_minutes, title,
@@ -658,7 +815,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal(Number(claimed.installation_id), 42, 'the refresh has no token to make its request with');
       assert.equal((await db.repositories.claimRepositoriesForRefresh()).length, 0, 'the lease did not hold');
 
-      await db.repositories.markRefreshSucceeded(claimed.id, fetched({ full_name: 'acme/widget-renamed' }), 'W/"r1"', 3600);
+      await db.repositories.markRefreshSucceeded(claimed, fetched({ full_name: 'acme/widget-renamed' }), 'W/"r1"', 3600);
 
       const row = await oneRow(
         `SELECT full_name, stargazers_count, subscribers_count, license, topics, primary_language,
@@ -681,10 +838,38 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal(row.pushed_out, true);
     });
 
+    test("a refresh release from a worker whose lease ran out and was taken again changes nothing", async () => {
+      // gone_at is one-way, so this is the release that cannot be undone by the next run.
+      await enrol('octocat');
+      await db.repositories.ensureRepository('acme/widget', 9001);
+
+      const [first] = await db.repositories.claimRepositoriesForRefresh();
+
+      await expireLease('github_repositories', 'refresh_claimed_at');
+
+      const [second] = await db.repositories.claimRepositoriesForRefresh();
+
+      for (const release of [
+        () => db.repositories.markRepositoryGone(first, '404 by id after 3 attempts'),
+        () => db.repositories.markRefreshFailed(first, 3600, 'Not Found', true),
+        () => db.repositories.markRefreshUnchanged(first, 3600),
+        () => db.repositories.markRefreshSucceeded(first, fetched({ full_name: 'acme/stale' }), 'W/"stale"', 3600),
+      ]) {
+        assert.equal(await release(), false);
+      }
+
+      assert.deepEqual(
+        await oneRow(`SELECT full_name, gone_at, refresh_error_count, etag, refresh_claimed_at::text AS lease FROM github_repositories`),
+        { full_name: 'acme/widget', gone_at: null, refresh_error_count: 0, etag: null, lease: second.lease },
+        'the stale worker released a row another one holds'
+      );
+      assert.equal(await db.repositories.markRefreshUnchanged(second, 3600), true);
+    });
+
     test("markRefreshSucceeded never rewrites the GitHub id, which is the row's identity", async () => {
       const { id } = await db.repositories.ensureRepository('acme/widget', 9001);
 
-      await db.repositories.markRefreshSucceeded(id, fetched({ id: 12345 }), null, 60);
+      await db.repositories.markRefreshSucceeded(await lease('github_repositories', id), fetched({ id: 12345 }), null, 60);
 
       assert.equal(Number((await oneRow(`SELECT github_id FROM github_repositories`)).github_id), 9001);
     });
@@ -692,14 +877,14 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
     test("markRefreshUnchanged moves the cursor and nothing else, and recordRename keeps the name it replaced", async () => {
       const { id } = await db.repositories.ensureRepository('acme/widget', 9001);
 
-      await db.repositories.markRefreshSucceeded(id, fetched(), 'W/"r1"', 60);
-      await db.repositories.markRefreshUnchanged(id, 3600);
+      await db.repositories.markRefreshSucceeded(await lease('github_repositories', id), fetched(), 'W/"r1"', 60);
+      await db.repositories.markRefreshUnchanged(await lease('github_repositories', id), 3600);
 
       const row = await oneRow(`SELECT etag, stargazers_count, refresh_error_count FROM github_repositories`);
 
       assert.equal(row.etag, 'W/"r1"', 'a 304 threw away the etag that produced it');
 
-      await db.repositories.markRefreshSucceeded(id, fetched(), null, 60);
+      await db.repositories.markRefreshSucceeded(await lease('github_repositories', id), fetched(), null, 60);
 
       assert.equal(
         (await oneRow(`SELECT etag FROM github_repositories`)).etag,
@@ -722,7 +907,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
       const { id } = await db.repositories.ensureRepository('acme/widget', 9001);
 
-      await db.repositories.markRefreshFailed(id, 0, 'Not Found', true);
+      await db.repositories.markRefreshFailed(await lease('github_repositories', id), 0, 'Not Found', true);
       assert.equal((await db.repositories.claimRepositoriesForRefresh()).length, 1, 'a failed refresh leaves the queue');
       assert.equal(
         (await oneRow(`SELECT last_refresh_error FROM github_repositories`)).last_refresh_error,
@@ -730,7 +915,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
         'the page says why the last refresh failed'
       );
 
-      await db.repositories.markRepositoryGone(id, '404 Not Found');
+      await db.repositories.markRepositoryGone(await lease('github_repositories', id), '404 Not Found');
 
       const first = await oneRow(`SELECT gone_at, refresh_error_count, refresh_404_count FROM github_repositories`);
 
@@ -739,7 +924,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       assert.equal(first.refresh_404_count, 2);
       assert.equal((await db.repositories.claimRepositoriesForRefresh()).length, 0);
 
-      await db.repositories.markRepositoryGone(id, '410 Gone');
+      await db.repositories.markRepositoryGone(await lease('github_repositories', id), '410 Gone');
 
       assert.deepEqual(
         (await oneRow(`SELECT gone_at FROM github_repositories`)).gone_at,
@@ -756,22 +941,24 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       const { id } = await db.repositories.ensureRepository('acme/widget', 9001);
       const counts = async () => oneRow(`SELECT refresh_404_count, refresh_error_count FROM github_repositories`);
 
-      await db.repositories.markRefreshFailed(id, 0, 'Not Found', true);
-      await db.repositories.markRefreshFailed(id, 0, 'Not Found', true);
+      const held = () => lease('github_repositories', id);
+
+      await db.repositories.markRefreshFailed(await held(), 0, 'Not Found', true);
+      await db.repositories.markRefreshFailed(await held(), 0, 'Not Found', true);
 
       assert.deepEqual(await counts(), { refresh_404_count: 2, refresh_error_count: 2 });
 
-      await db.repositories.markRefreshFailed(id, 0, 'timeout');
+      await db.repositories.markRefreshFailed(await held(), 0, 'timeout');
 
       assert.deepEqual(await counts(), { refresh_404_count: 0, refresh_error_count: 3 });
 
-      await db.repositories.markRefreshFailed(id, 0, 'Not Found', true);
+      await db.repositories.markRefreshFailed(await held(), 0, 'Not Found', true);
 
       const [claimed] = await db.repositories.claimRepositoriesForRefresh();
 
       assert.equal(claimed.refresh_404_count, 1, 'the job decides on what the claim hands it');
 
-      await db.repositories.markRefreshUnchanged(id, 60);
+      await db.repositories.markRefreshUnchanged(claimed, 60);
 
       assert.deepEqual(await counts(), { refresh_404_count: 0, refresh_error_count: 0 });
     });
@@ -848,6 +1035,117 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       await db.pullRequests.upsertPullRequest(hydrated(), other);
 
       assert.equal((await oneRow(`SELECT repository_id FROM github_pull_requests`)).repository_id, repositoryId);
+    });
+
+    test("a pull request reopened and merged by somebody else is refreshed, and is back in the poll queue", async () => {
+      // A stale bot closed it, the poll stored `closed`, and the row left the queue. The reopen
+      // and the merge are in the MAINTAINER's feed, whose hydration is the only news the
+      // author's row will ever get.
+      await enrol('octocat');
+
+      const repositoryId = await contribute();
+
+      await db.pullRequests.upsertPullRequest(hydrated({ state: 'closed', closed_at: '2026-01-05T10:00:00.000Z' }), repositoryId);
+      await admin.none(
+        `UPDATE ${SCHEMA}.github_pull_requests
+         SET next_poll_at = CURRENT_TIMESTAMP + interval '4 hours', state_changed_at = '2026-01-05T10:00:00Z',
+             created_timestamp = CURRENT_TIMESTAMP - interval '90 days'`
+      );
+
+      assert.equal((await db.polling.claimPullRequestsForPoll()).length, 0, 'the closed row is out of the queue');
+
+      // `user: null`: the response may name nobody, and who opened it is not this path's to say.
+      const reopened = await db.pullRequests.refreshPullRequest(hydrated({
+        state: 'open',
+        closed_at: null,
+        updated_at: '2026-02-01T09:00:00.000Z',
+        user: null,
+        base: { ref: 'main', repo: { full_name: 'acme/widget', stargazers_count: 999 } },
+      }));
+
+      assert.equal(reopened, true);
+
+      const row = await oneRow(
+        `SELECT state, closed_at, opened_by, user_type, stargazers_count, next_poll_at,
+                state_changed_at > '2026-01-05T10:00:00Z'::timestamptz AS stamped
+         FROM github_pull_requests`
+      );
+
+      assert.equal(row.state, 'open');
+      assert.equal(row.closed_at, null);
+      assert.equal(row.stamped, true, 'the reopen is a state change, and detection latency is measured from it');
+      assert.ok(row.next_poll_at !== null && row.next_poll_at <= new Date(), 'a reopened row waited out the interval of the poll that closed it');
+      assert.equal(row.opened_by, 'octocat');
+      assert.equal(row.user_type, 'User');
+      assert.equal(row.stargazers_count, 340, 'the contribution-time snapshot stays frozen');
+      // Due now rather than NULL: the ops page reads NULL as never scheduled, late since the row
+      // was recorded - 90 days here, and a red card for a row the next tick will take anyway.
+      assert.equal((await db.dashboard.getSubjectStates()).poll.overdue, 0, 'the reopened row shows as late by its whole age');
+      assert.equal((await db.polling.claimPullRequestsForPoll()).length, 1, 'the reopened row is due again');
+
+      await db.pullRequests.refreshPullRequest(hydrated({
+        state: 'closed',
+        updated_at: '2026-02-02T09:00:00.000Z',
+        merged: true,
+        merged_at: '2026-02-02T09:00:00.000Z',
+        closed_at: '2026-02-02T09:00:00.000Z',
+        merged_by: { login: 'maintainer' },
+        commits: 5,
+      }));
+
+      const merged = await oneRow(`SELECT state, merged, merged_at, merged_by, commits_count FROM github_pull_requests`);
+
+      assert.deepEqual(
+        { ...merged, merged_at: merged.merged_at.toISOString() },
+        { state: 'closed', merged: true, merged_at: '2026-02-02T09:00:00.000Z', merged_by: 'maintainer', commits_count: 5 }
+      );
+    });
+
+    test("a refresh with no state change leaves the poll schedule and state_changed_at alone", async () => {
+      await enrol('octocat');
+      await contribute();
+      await admin.none(
+        `UPDATE ${SCHEMA}.github_pull_requests
+         SET next_poll_at = '2099-01-01T00:00:00Z', state_changed_at = '2026-01-05T10:00:00Z'`
+      );
+
+      await db.pullRequests.refreshPullRequest(hydrated({ title: 'Labelled by a maintainer' }));
+
+      const row = await oneRow(`SELECT title, next_poll_at, state_changed_at FROM github_pull_requests`);
+
+      assert.equal(row.title, 'Labelled by a maintainer');
+      assert.equal(row.next_poll_at.toISOString(), '2099-01-01T00:00:00.000Z');
+      assert.equal(row.state_changed_at.toISOString(), '2026-01-05T10:00:00.000Z');
+    });
+
+    test("a refresh never goes back in time", async () => {
+      // The maintainer's sync read `closed` before the author reopened it, and the author's own
+      // sync stored the reopen first. Written now, that older read closes the row again, and a
+      // closed row is one the poll never reads back.
+      await enrol('octocat');
+      await contribute({ updated_at: '2026-02-01T09:00:00.000Z' });
+
+      const refreshed = await db.pullRequests.refreshPullRequest(hydrated({
+        state: 'closed',
+        closed_at: '2026-01-20T09:00:00.000Z',
+        updated_at: '2026-01-20T09:00:00.000Z',
+      }));
+
+      assert.equal(refreshed, false);
+      assert.equal((await oneRow(`SELECT state FROM github_pull_requests`)).state, 'open');
+    });
+
+    test("a refresh never creates a row, and never touches a hand-entered one", async () => {
+      // A maintainer's feed is full of other people's pull requests: a row exists only for one an
+      // enrolled person opened. And a manual row's id is the other forge's, free to collide.
+      assert.equal(await db.pullRequests.refreshPullRequest(hydrated()), false);
+      assert.equal((await oneRow(`SELECT count(*)::int AS n FROM github_pull_requests`)).n, 0);
+
+      await contribute({ state: 'closed' });
+      await admin.none(`UPDATE ${SCHEMA}.github_pull_requests SET origin = 'manual'`);
+
+      assert.equal(await db.pullRequests.refreshPullRequest(hydrated({ state: 'open' })), false);
+      assert.equal((await oneRow(`SELECT state FROM github_pull_requests`)).state, 'closed');
     });
   });
 
@@ -1055,8 +1353,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
       // Due in an hour, and held by a worker that will never come back: both halves of the
       // suspend below have something to undo.
-      await db.installations.claimInstallationsForSync();
-      await db.installations.markSyncSucceeded(id, { intervalMinutes: 60, delaySeconds: 3600, etag: null });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 60, delaySeconds: 3600, etag: null });
       await admin.none(`UPDATE ${SCHEMA}.github_installations SET sync_claimed_at = CURRENT_TIMESTAMP`);
 
       await db.installations.handleInstallationEvent(InstallationEvent.SUSPEND, 42);
@@ -1143,7 +1440,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
       // second.
       const id = await enrol('octocat');
 
-      await db.installations.markSyncSucceeded(id, { intervalMinutes: 60, delaySeconds: 3600, etag: null });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 60, delaySeconds: 3600, etag: null });
 
       const before = (await oneRow(`SELECT next_sync_at FROM github_installations`)).next_sync_at;
 
@@ -1307,7 +1604,7 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
       const [claimed] = await db.installations.claimInstallationsForSync();
 
-      await db.installations.markSyncFailed(claimed.id, 0, 'Not Found', 'account gone');
+      await db.installations.markSyncFailed(claimed, 0, 'Not Found', 'account gone');
 
       assert.deepEqual(await db.installations.isEnrolledUser('OCTOCAT'), { enrolled: true, known: true });
     });
@@ -1332,14 +1629,16 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
     test("forceSyncNow brings a syncable account forward and refuses every row the queue excludes", async () => {
       const id = await enrol('octocat');
 
-      await db.installations.markSyncSucceeded(id, { intervalMinutes: 60, delaySeconds: 3600, etag: null });
+      await db.installations.markSyncSucceeded(await lease('github_installations', id), { intervalMinutes: 60, delaySeconds: 3600, etag: null });
 
       assert.equal((await db.installations.claimInstallationsForSync()).length, 0, 'the fixture is due before it was forced');
       // Keyed on the GitHub account id, which survives a rename where the login does not.
       assert.deepEqual(await db.installations.forceSyncNow(1), { login: 'octocat', running: false });
-      assert.equal((await db.installations.claimInstallationsForSync()).length, 1);
+      const [forced] = await db.installations.claimInstallationsForSync();
 
-      await db.installations.markSyncFailed(id, 0, 'Not Found', 'account gone');
+      assert.ok(forced);
+
+      await db.installations.markSyncFailed(forced, 0, 'Not Found', 'account gone');
 
       assert.equal(await db.installations.forceSyncNow(1), null, 'a retired row would be parked at the head of a queue no run drains');
       assert.equal(await db.installations.forceSyncNow(999), null);
@@ -1348,6 +1647,6 @@ describe("the SQL layer, against a real PostgreSQL", { skip }, () => {
 
   // The dashboard's areas, declared here so they share this file's schema and lifecycle.
   for (const area of [shared, ops, mine, collective]) {
-    area.register({ db, rowsOf, oneRow, enrol, contribute, expireLease });
+    area.register({ db, rowsOf, oneRow, enrol, contribute, expireLease, lease });
   }
 });

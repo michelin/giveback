@@ -1027,6 +1027,13 @@
     return { ok: response.ok, error: payload.error ?? 'the request failed' };
   };
 
+  // An address edited is not the one looked up: its preview goes, and the Record button with it,
+  // so what was found for one address is never on screen under another.
+  $('m-url').addEventListener('input', () => {
+    manualFound = null;
+    renderFound();
+  });
+
   /* ---- recording by hand: the three writes ------------------------------------ */
 
   $('view-ops').addEventListener('click', async (event) => {
@@ -1053,14 +1060,22 @@
     if (target?.id === 'm-look') {
       target.disabled = true;
 
+      const url = $('m-url').value;
+
       try {
         const response = await fetch('/dashboard/manual/lookup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           cache: 'no-store',
-          body: JSON.stringify({ url: $('m-url').value }),
+          body: JSON.stringify({ url }),
         });
         const payload = await response.json().catch(() => ({}));
+
+        // Edited while the answer was on its way: that answer is for an address the box no
+        // longer holds, and drawing it would put one preview under another address.
+        if ($('m-url').value !== url) {
+          return;
+        }
 
         if (!response.ok) {
           manualFound = null;
@@ -1084,9 +1099,12 @@
       target.disabled = true;
       target.textContent = 'Recording';
 
-      // The address is sent again rather than the whole preview: the server fetches it once
-      // more and writes from THAT, so nothing a page could have altered reaches a row.
-      const body = { url: $('m-url').value };
+      // The address that was looked up, not whatever the box holds now: the author picked and
+      // the fields typed were chosen for the preview on screen, and sent with another address
+      // they would credit one merge request with another's author. Only the address is sent
+      // rather than the whole preview: the server fetches it once more and writes from THAT, so
+      // nothing a page could have altered reaches a row.
+      const body = { url: manualFound.url };
 
       if (manualFound?.forge === 'gitlab') {
         // The author travels on both paths, because it is the one thing no forge can answer.

@@ -106,6 +106,10 @@ const recordRun = (job, summary) => {
 // one.
 const reported = new Set();
 
+// Set by stopBree() just before it terminates the workers that outlived its bound, so their
+// exits are not reported as closeWorkerAfterMs kills - bree.stop() has cleared that timer.
+let stopping = false;
+
 /**
  * Adapter for the logger handed to Bree
  *
@@ -180,11 +184,12 @@ export const bree = new Bree({
 
     // Bree synthesizes `Worker for job "x" exited with code 1` when it kills a worker at
     // closeWorkerAfterMs. The absence of a report is what distinguishes that from a crash, and
-    // it is recoverable: the claimed rows come back when their lease expires.
+    // it is recoverable: the claimed rows come back when their lease expires. The same holds for
+    // a worker stopBree() terminated at shutdown.
     if (timeoutMs && !reported.has(name) && /exited with code/.test(error?.message ?? '')) {
       logger.warn(
-        { ...fields.job(name), timeout_ms: timeoutMs },
-        `${name} was killed after ${format.duration(timeoutMs)} without reporting - its claimed rows return to the queue when their lease expires`
+        { ...fields.job(name), ...(stopping ? {} : { timeout_ms: timeoutMs }) },
+        `${name} was killed ${stopping ? 'by the shutdown' : `after ${format.duration(timeoutMs)}`} without reporting - its claimed rows return to the queue when their lease expires`
       );
       return;
     }
@@ -227,17 +232,58 @@ export const startBree = async () => {
   );
 };
 
-/** Stop every scheduled job and terminate running workers. */
-export const stopBree = async () => {
+// How long a shutdown lets a running job finish before terminating it. The HTTP drain in
+// src/index.js has already taken up to 5 s, and both together must stay under the platform's
+// grace period - commonly 10 s - and under index.js's 10 s fatal-exit backstop.
+const STOP_TIMEOUT_MS = 3000;
+
+/**
+ * Stop every scheduled job and terminate running workers
+ *
+ * Bounded, because bree.stop() alone is not: it posts 'cancel', which no job listens for,
+ * clears the closeWorkerAfterMs kill and then waits for every worker to end on its own - a
+ * 100 s batch, or forever behind a hung GitHub call. A terminated run loses nothing it
+ * committed: due times are written per subject, and its claims come back with the lease.
+ * @param {number} [timeoutMs] - The bound. A parameter so test/shutdown.test.js need not wait 3 s
+ */
+export const stopBree = async (timeoutMs = STOP_TIMEOUT_MS) => {
   const startedAt = Date.now();
   const running = bree.workers?.size ?? 0;
 
   logger.info(`stopping the scheduler - ${running} worker(s) still running`);
 
-  await bree.stop();
+  let timer;
+  let stopFailed = false;
+  let stopError;
 
-  // A stop that hangs on a busy worker is the usual reason a container is killed after its
-  // grace period, and without this line the process looks like it simply vanished.
+  // A rejection is a stop that did not happen, handled like one that ran out of time: whatever
+  // still runs is terminated below, and only then is the error passed on. Bree 9 rejects only
+  // when init() fails, before any worker can exist, but the termination must not depend on it.
+  // One that arrives after the bound is too late to report: the workers are already terminated.
+  const stopped = await Promise.race([
+    bree.stop().then(() => true, (error) => {
+      stopFailed = true;
+      stopError = error;
+      return false;
+    }),
+    new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs, false); }),
+  ]);
+
+  clearTimeout(timer);
+
+  if (!stopped) {
+    stopping = true;
+    // Each exit is reported by errorHandler above, one line per job.
+    await Promise.all([...bree.workers.values()].map((worker) => worker.terminate()));
+  }
+
+  // src/index.js logs it and carries on to the pool.
+  if (stopFailed) {
+    throw stopError;
+  }
+
+  // Without this line a shutdown that had to terminate a worker reads like a process that
+  // simply vanished.
   logger.info(`scheduler stopped in ${format.duration(Date.now() - startedAt)}`);
 };
 

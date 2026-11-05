@@ -374,6 +374,9 @@ pre-selected unless it matches an enrolled login. An author who has never enroll
 
 Recording fetches **again** and writes from that, never from what the browser sends back: the
 preview is a courtesy, this is the record. Forge data and typed fields are never mixed in one row.
+What is sent is the address that was previewed, not whatever the box holds by then. Editing the
+address clears the preview and its Record button, and a lookup that answers after the edit is
+dropped: the author picked for one merge request is never sent with another.
 
 **Merged work only.** An entry is a fact, not a thing to follow: `origin = 'manual'` keeps it out of
 the poll queue, and a project on another forge has no `github_id`, which keeps it out of the

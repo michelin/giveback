@@ -1250,6 +1250,90 @@ describe("the handlers the page installs are called", () => {
     assert.equal(elements.get('m-gitlab').getAttribute('aria-pressed'), 'true');
     assert.equal(elements.get('m-github').getAttribute('aria-pressed'), 'false');
   });
+
+  describe("a contribution recorded by hand is the one previewed", () => {
+    const A = 'https://gitlab.com/group/project/-/merge_requests/12';
+    const B = 'https://gitlab.com/group/project/-/merge_requests/13';
+
+    // The page's lookup and its write, with the body each was sent; a lookup answers with the
+    // merge request its address names, and is held until the test lets it go when asked to.
+    const opened = async ({ hold = false } = {}) => {
+      const run = await runPage(operatorSnapshotOf());
+      const sent = [];
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+
+      run.sandbox.fetch = async (url, options) => {
+        const body = options?.body ? JSON.parse(options.body) : null;
+
+        sent.push({ url, body });
+
+        if (url === '/dashboard/manual/lookup') {
+          if (hold) await held;
+
+          const number = Number(body.url.split('/').pop());
+
+          return {
+            ok: true, status: 200, json: async () => ({
+              forge: 'gitlab', host: 'gitlab.com', fullName: 'group/project', number, url: body.url,
+              needsTyping: false, merged: true, title: `Change ${number}`, author: 'alice', authorName: 'Alice',
+            }),
+          };
+        }
+
+        return { ok: true, status: 200, json: async () => ({ contributions: [] }) };
+      };
+
+      const click = (id) => run.elements.get('view-ops').handlers.click({ target: { id, disabled: false, textContent: '' } });
+
+      // Through the document, as the page reaches it: the box is in no map until somebody asks.
+      return { ...run, box: run.document.getElementById('m-url'), sent, release, click };
+    };
+
+    test("Record sends the address looked up, not one put in the box since", async () => {
+      const { box, document, sent, click } = await opened();
+
+      box.value = A;
+      await click('m-look');
+      document.getElementById('g-author').value = 'dev-user-1';
+
+      // Changed without an input event, as a script or an autofill may: the box and the preview
+      // now disagree, and the preview is what the author was picked for.
+      box.value = B;
+      await click('m-save');
+
+      const save = sent.find((call) => call.url === '/dashboard/manual');
+
+      assert.deepEqual(plain(save.body), { url: A, author: 'dev-user-1' });
+    });
+
+    test("an address edited takes the preview and its Record button with it", async () => {
+      const { box, elements, click } = await opened();
+
+      box.value = A;
+      await click('m-look');
+      assert.match(elements.get('m-result').innerHTML, /id="m-save"/);
+
+      box.value = B;
+      box.handlers.input?.();
+
+      assert.equal(elements.get('m-result').innerHTML, '', 'a preview of A under the address of B');
+    });
+
+    test("and so does one edited while its lookup was on its way", async () => {
+      const { box, elements, click, release } = await opened({ hold: true });
+
+      box.value = A;
+      const looking = click('m-look');
+
+      box.value = B;
+      box.handlers.input?.();
+      release();
+      await looking;
+
+      assert.equal(elements.get('m-result').innerHTML, '', 'the answer for A was drawn under the address of B');
+    });
+  });
 });
 
 describe("what the bot has recorded", () => {

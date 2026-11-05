@@ -59,6 +59,11 @@ npm start
 `npm start` reads `.env` if present and otherwise the environment, so the same command works on
 a platform that injects its own settings.
 
+On `SIGTERM` or `SIGINT` it lets in-flight requests finish for up to 5 s, gives a running job up
+to 3 s more, then terminates it and releases the database pool. Keep the platform's grace period
+at 10 s or above. A terminated job loses nothing it committed: its claimed rows return to the queue
+when their lease expires.
+
 ## 5. Turn on the dashboard (optional)
 
 Set `SESSION_SECRET` (`openssl rand -hex 32`) and `GET /dashboard` serves three tabs: **Me**, what

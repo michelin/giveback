@@ -230,5 +230,5 @@ at `debug` records the `413`.
   process exits hard about 10 s later if the orderly shutdown has not finished, since after an
   error nobody handled, nothing guarantees the loop ever empties.
 - **Bree's `errorHandler` is deliberate.** It also distinguishes a worker killed at
-  `closeWorkerAfterMs` (a `warn`: the claimed rows return to the queue when their lease expires)
-  from a genuine crash (an `error`).
+  `closeWorkerAfterMs` or by the shutdown's 3 s bound (a `warn`: the claimed rows return to the
+  queue when their lease expires) from a genuine crash (an `error`).
